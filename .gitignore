@@ -40,8 +40,10 @@ dependency-reduced-pom.xml
 !.env.*.example
 application-local.yml
 application-local.yaml
+application-local.properties
 application-*.local.yml
 application-*.local.yaml
+application-*.local.properties
 
 # Logs
 *.log
