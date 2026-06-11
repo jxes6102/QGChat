@@ -10,10 +10,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import training.QGChat.auth.exception.AuthException;
-import training.QGChat.profile.dto.ChangeEmailRequest;
 import training.QGChat.profile.dto.ChangePasswordRequest;
-import training.QGChat.profile.dto.UpdateAvatarRequest;
-import training.QGChat.profile.dto.UpdateDisplayNameRequest;
 import training.QGChat.profile.dto.UpdateProfileRequest;
 import training.QGChat.profile.dto.UserProfileResponse;
 import training.QGChat.profile.service.ProfileService;
@@ -43,30 +40,6 @@ public class ProfileController {
             @Valid @RequestBody UpdateProfileRequest request
     ) {
         return profileService.updateProfile(authorization, request);
-    }
-
-    @PatchMapping("/display-name")
-    public UserProfileResponse updateDisplayName(
-            @RequestHeader(value = "Authorization", required = false) String authorization,
-            @Valid @RequestBody UpdateDisplayNameRequest request
-    ) {
-        return profileService.updateDisplayName(authorization, request);
-    }
-
-    @PatchMapping("/avatar")
-    public UserProfileResponse updateAvatar(
-            @RequestHeader(value = "Authorization", required = false) String authorization,
-            @Valid @RequestBody UpdateAvatarRequest request
-    ) {
-        return profileService.updateAvatar(authorization, request);
-    }
-
-    @PatchMapping("/email")
-    public UserProfileResponse changeEmail(
-            @RequestHeader(value = "Authorization", required = false) String authorization,
-            @Valid @RequestBody ChangeEmailRequest request
-    ) {
-        return profileService.changeEmail(authorization, request);
     }
 
     @PatchMapping("/password")

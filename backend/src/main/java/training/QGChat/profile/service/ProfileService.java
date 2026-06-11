@@ -7,10 +7,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import training.QGChat.auth.exception.AuthException;
-import training.QGChat.profile.dto.ChangeEmailRequest;
 import training.QGChat.profile.dto.ChangePasswordRequest;
-import training.QGChat.profile.dto.UpdateAvatarRequest;
-import training.QGChat.profile.dto.UpdateDisplayNameRequest;
 import training.QGChat.profile.dto.UpdateProfileRequest;
 import training.QGChat.profile.dto.UserProfileResponse;
 import training.QGChat.profile.model.UserProfile;
@@ -64,54 +61,6 @@ public class ProfileService {
                 email,
                 request.avatarUrl() != null,
                 avatarUrl,
-                currentUser.id());
-
-        return findProfileById(currentUser.id()).toResponse();
-    }
-
-    @Transactional
-    public UserProfileResponse updateDisplayName(String authorization, UpdateDisplayNameRequest request) {
-        UserProfile currentUser = getCurrentUser(authorization);
-        jdbcTemplate.update("""
-                        UPDATE users
-                        SET display_name = ?
-                        WHERE id = ?
-                        """,
-                request.displayName().trim(),
-                currentUser.id());
-
-        return findProfileById(currentUser.id()).toResponse();
-    }
-
-    @Transactional
-    public UserProfileResponse updateAvatar(String authorization, UpdateAvatarRequest request) {
-        UserProfile currentUser = getCurrentUser(authorization);
-        jdbcTemplate.update("""
-                        UPDATE users
-                        SET avatar_url = ?
-                        WHERE id = ?
-                        """,
-                normalizeOptionalText(request.avatarUrl()),
-                currentUser.id());
-
-        return findProfileById(currentUser.id()).toResponse();
-    }
-
-    @Transactional
-    public UserProfileResponse changeEmail(String authorization, ChangeEmailRequest request) {
-        UserProfile currentUser = getCurrentUser(authorization);
-        String email = request.email().trim();
-
-        if (existsByEmailForOtherUser(email, currentUser.id())) {
-            throw new AuthException(HttpStatus.CONFLICT, "Email already exists");
-        }
-
-        jdbcTemplate.update("""
-                        UPDATE users
-                        SET email = ?
-                        WHERE id = ?
-                        """,
-                email,
                 currentUser.id());
 
         return findProfileById(currentUser.id()).toResponse();
