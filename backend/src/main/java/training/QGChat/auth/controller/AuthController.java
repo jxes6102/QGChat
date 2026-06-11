@@ -1,7 +1,7 @@
 package training.QGChat.auth.controller;
 
-import java.util.Map;
-
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -10,9 +10,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
 import training.QGChat.auth.dto.AuthResponse;
 import training.QGChat.auth.dto.ForgotPasswordRequest;
 import training.QGChat.auth.dto.ForgotPasswordResponse;
@@ -23,6 +20,8 @@ import training.QGChat.auth.dto.ResetPasswordRequest;
 import training.QGChat.auth.dto.ResetPasswordResponse;
 import training.QGChat.auth.exception.AuthException;
 import training.QGChat.auth.service.AuthService;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
