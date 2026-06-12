@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QGChat Socket Test</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f7f9;
+            --panel: #ffffff;
+            --line: #d9dee7;
+            --text: #18202f;
+            --muted: #667085;
+            --primary: #1463ff;
+            --primary-dark: #0f4ed2;
+            --danger: #c0362c;
+            --ok: #157347;
+            --code: #101828;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Segoe UI", "Microsoft JhengHei", Arial, sans-serif;
+        }
+
+        main {
+            width: min(1120px, calc(100% - 32px));
+            margin: 24px auto;
+        }
+
+        h1 {
+            margin: 0 0 16px;
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 390px 1fr;
+            gap: 16px;
+            align-items: start;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .panel h2 {
+            margin: 0 0 14px;
+            font-size: 18px;
+        }
+
+        label {
+            display: block;
+            margin: 12px 0 6px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        input,
+        textarea {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            color: var(--text);
+            font: inherit;
+            padding: 10px 11px;
+            outline: none;
+        }
+
+        textarea {
+            min-height: 86px;
+            resize: vertical;
+        }
+
+        input:focus,
+        textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(20, 99, 255, 0.13);
+        }
+
+        .buttons {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        button {
+            min-height: 40px;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 700;
+            padding: 8px 10px;
+        }
+
+        button.primary {
+            background: var(--primary);
+            color: #fff;
+        }
+
+        button.primary:hover {
+            background: var(--primary-dark);
+        }
+
+        button.secondary {
+            background: #eef2f7;
+            border-color: var(--line);
+            color: var(--text);
+        }
+
+        button.secondary:hover {
+            background: #e5eaf2;
+        }
+
+        button.danger {
+            background: #fff1f0;
+            border-color: #f1b8b2;
+            color: var(--danger);
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 2px 0 14px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background: #98a2b3;
+        }
+
+        .dot.connected {
+            background: var(--ok);
+        }
+
+        .log {
+            min-height: 560px;
+            max-height: 720px;
+            overflow: auto;
+            border-radius: 6px;
+            background: var(--code);
+            color: #d0d5dd;
+            padding: 12px;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .hint {
+            margin: 12px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        @media (max-width: 860px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+
+            .log {
+                min-height: 360px;
+            }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>QGChat WebSocket 測試</h1>
+
+    <div class="layout">
+        <section class="panel">
+            <h2>連線資料</h2>
+            <div class="status">
+                <span id="statusDot" class="dot"></span>
+                <span id="statusText">尚未連線</span>
+            </div>
+
+            <label for="wsUrl">WebSocket URL</label>
+            <input id="wsUrl" value="">
+
+            <label for="token">Bearer Token</label>
+            <textarea id="token" placeholder="貼上 user token，不用加 Bearer 也可以"></textarea>
+
+            <label for="conversationId">Conversation ID</label>
+            <input id="conversationId" placeholder="例如 68f4f890-681e-42b4-8457-6a739088d7df">
+
+            <label for="content">訊息內容</label>
+            <textarea id="content">Hello from ws-test.html</textarea>
+
+            <label for="metadata">Metadata JSON</label>
+            <input id="metadata" value="{}">
+
+            <div class="buttons">
+                <button class="primary" id="connectBtn">Connect</button>
+                <button class="secondary" id="subscribeBtn">Subscribe</button>
+                <button class="primary" id="sendWsBtn">Send WS</button>
+                <button class="secondary" id="sendRestBtn">Send REST</button>
+                <button class="danger" id="disconnectBtn">Disconnect</button>
+                <button class="secondary" id="clearBtn">Clear Log</button>
+            </div>
+
+            <p class="hint">
+                測試順序：先 Connect，看到 CONNECTED 後按 Subscribe，再按 Send WS。
+                Send REST 會呼叫 REST API 新增訊息，用來確認 REST 發訊息後 socket 也能收到廣播。
+            </p>
+        </section>
+
+        <section class="panel">
+            <h2>Socket Log</h2>
+            <div id="log" class="log"></div>
+        </section>
+    </div>
+</main>
+
+<script>
+    const NULL = "\u0000";
+    let socket = null;
+    let connected = false;
+    let subscribedConversationId = "";
+    let subscriptionId = 0;
+
+    const wsUrlInput = document.querySelector("#wsUrl");
+    const tokenInput = document.querySelector("#token");
+    const conversationInput = document.querySelector("#conversationId");
+    const contentInput = document.querySelector("#content");
+    const metadataInput = document.querySelector("#metadata");
+    const logEl = document.querySelector("#log");
+    const statusDot = document.querySelector("#statusDot");
+    const statusText = document.querySelector("#statusText");
+
+    wsUrlInput.value = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/chat`;
+
+    document.querySelector("#connectBtn").addEventListener("click", connect);
+    document.querySelector("#subscribeBtn").addEventListener("click", subscribe);
+    document.querySelector("#sendWsBtn").addEventListener("click", sendWebSocketMessage);
+    document.querySelector("#sendRestBtn").addEventListener("click", sendRestMessage);
+    document.querySelector("#disconnectBtn").addEventListener("click", disconnect);
+    document.querySelector("#clearBtn").addEventListener("click", () => logEl.textContent = "");
+
+    function connect() {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            log("WebSocket 已連線");
+            return;
+        }
+
+        socket = new WebSocket(wsUrlInput.value.trim());
+        setStatus(false, "連線中...");
+
+        socket.addEventListener("open", () => {
+            log("WS OPEN");
+            sendFrame("CONNECT", {
+                "accept-version": "1.2",
+                "heart-beat": "0,0"
+            });
+        });
+
+        socket.addEventListener("message", event => {
+            for (const frame of parseFrames(String(event.data))) {
+                handleFrame(frame);
+            }
+        });
+
+        socket.addEventListener("close", event => {
+            connected = false;
+            setStatus(false, `已斷線 code=${event.code}`);
+            log(`WS CLOSE code=${event.code} reason=${event.reason || ""}`);
+        });
+
+        socket.addEventListener("error", () => {
+            setStatus(false, "連線錯誤");
+            log("WS ERROR");
+        });
+    }
+
+    function subscribe() {
+        ensureConnected();
+        const conversationId = requireConversationId();
+        subscribedConversationId = conversationId;
+        sendFrame("SUBSCRIBE", {
+            id: `sub-${subscriptionId++}`,
+            destination: `/topic/conversations/${conversationId}`
+        });
+        log(`SUBSCRIBE /topic/conversations/${conversationId}`);
+    }
+
+    function sendWebSocketMessage() {
+        ensureConnected();
+        const conversationId = requireConversationId();
+        const payload = buildPayload(conversationId);
+        sendFrame("SEND", {
+            destination: "/app/chat.send",
+            "content-type": "application/json"
+        }, JSON.stringify(payload));
+        log(`SEND /app/chat.send\n${JSON.stringify(payload, null, 2)}`);
+    }
+
+    async function sendRestMessage() {
+        const conversationId = requireConversationId();
+        const token = normalizeToken(tokenInput.value);
+        const payload = buildPayload(conversationId);
+        delete payload.authorization;
+        delete payload.conversationId;
+
+        const response = await fetch(`/api/chats/conversations/${conversationId}/messages`, {
+            method: "POST",
+            headers: {
+                "Authorization": token,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const text = await response.text();
+        log(`REST POST ${response.status}\n${pretty(text)}`);
+    }
+
+    function disconnect() {
+        if (!socket) {
+            return;
+        }
+        if (socket.readyState === WebSocket.OPEN && connected) {
+            sendFrame("DISCONNECT", { receipt: "bye" });
+        }
+        socket.close();
+    }
+
+    function sendFrame(command, headers = {}, body = "") {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            throw new Error("WebSocket 尚未連線");
+        }
+
+        const headerLines = Object.entries(headers).map(([key, value]) => `${key}:${value}`);
+        const frame = `${command}\n${headerLines.join("\n")}\n\n${body}${NULL}`;
+        socket.send(frame);
+    }
+
+    function handleFrame(frame) {
+        if (!frame.command) {
+            return;
+        }
+
+        if (frame.command === "CONNECTED") {
+            connected = true;
+            setStatus(true, "STOMP 已連線");
+            log(`CONNECTED\n${JSON.stringify(frame.headers, null, 2)}`);
+            return;
+        }
+
+        if (frame.command === "MESSAGE") {
+            log(`MESSAGE ${frame.headers.destination || ""}\n${pretty(frame.body)}`);
+            return;
+        }
+
+        if (frame.command === "ERROR") {
+            log(`ERROR\n${pretty(frame.body)}`);
+            return;
+        }
+
+        log(`${frame.command}\n${pretty(frame.body)}`);
+    }
+
+    function parseFrames(raw) {
+        return raw.split(NULL)
+            .filter(part => part.trim().length > 0)
+            .map(part => {
+                const separator = part.indexOf("\n\n");
+                const head = separator >= 0 ? part.slice(0, separator) : part;
+                const body = separator >= 0 ? part.slice(separator + 2) : "";
+                const lines = head.split("\n");
+                const command = lines.shift() || "";
+                const headers = {};
+                for (const line of lines) {
+                    const colon = line.indexOf(":");
+                    if (colon > -1) {
+                        headers[line.slice(0, colon)] = line.slice(colon + 1);
+                    }
+                }
+                return { command, headers, body };
+            });
+    }
+
+    function buildPayload(conversationId) {
+        const metadata = metadataInput.value.trim() || "{}";
+        JSON.parse(metadata);
+        return {
+            authorization: normalizeToken(tokenInput.value),
+            conversationId,
+            type: "TEXT",
+            content: contentInput.value.trim(),
+            metadata,
+            replyToMessageId: null
+        };
+    }
+
+    function normalizeToken(value) {
+        const token = value.trim();
+        if (!token) {
+            throw new Error("請先貼上 token");
+        }
+        return token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+    }
+
+    function requireConversationId() {
+        const conversationId = conversationInput.value.trim();
+        if (!conversationId) {
+            throw new Error("請先填 conversationId");
+        }
+        return conversationId;
+    }
+
+    function ensureConnected() {
+        if (!socket || socket.readyState !== WebSocket.OPEN || !connected) {
+            throw new Error("請先 Connect，並等待 CONNECTED");
+        }
+    }
+
+    function pretty(text) {
+        if (!text) {
+            return "";
+        }
+        try {
+            return JSON.stringify(JSON.parse(text), null, 2);
+        } catch {
+            return text;
+        }
+    }
+
+    function setStatus(isConnected, text) {
+        statusDot.classList.toggle("connected", isConnected);
+        statusText.textContent = text;
+    }
+
+    function log(message) {
+        const time = new Date().toLocaleTimeString();
+        logEl.textContent += `[${time}] ${message}\n\n`;
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    window.addEventListener("error", event => {
+        log(`ERROR ${event.message}`);
+    });
+
+    window.addEventListener("unhandledrejection", event => {
+        log(`ERROR ${event.reason && event.reason.message ? event.reason.message : event.reason}`);
+    });
+</script>
+</body>
+</html>
