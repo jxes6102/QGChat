@@ -32,12 +32,14 @@ public class ProfileService {
     }
 
     public UserProfileResponse getProfile(String authorization) {
+        // 由 bearer token 找出目前登入使用者，再轉成對外回應 DTO。
         return getCurrentUser(authorization).toResponse();
     }
 
     @Transactional
     public UserProfileResponse updateProfile(String authorization, UpdateProfileRequest request) {
         UserProfile currentUser = getCurrentUser(authorization);
+        // request 欄位都允許部分更新；null 代表不更新，空字串視欄位規則決定是否拒絕或清空。
         String displayName = normalizeRequiredText(request.displayName(), "Display name cannot be blank");
         String email = normalizeEmail(request.email());
         String avatarUrl = normalizeOptionalText(request.avatarUrl());
@@ -47,6 +49,7 @@ public class ProfileService {
         }
 
         if (email != null && existsByEmailForOtherUser(email, currentUser.id())) {
+            // email 不可與其他使用者重複，但保留目前使用者自己的 email。
             throw new AuthException(HttpStatus.CONFLICT, "Email already exists");
         }
 
@@ -70,6 +73,7 @@ public class ProfileService {
     public boolean changePassword(String authorization, ChangePasswordRequest request) {
         UserProfile currentUser = getCurrentUser(authorization);
 
+        // 修改密碼前先驗證目前密碼，避免已登入裝置被他人直接改密碼。
         if (currentUser.passwordHash() == null
                 || !passwordEncoder.matches(request.currentPassword(), currentUser.passwordHash())) {
             throw new AuthException(HttpStatus.UNAUTHORIZED, "Invalid current password");
@@ -83,6 +87,7 @@ public class ProfileService {
                 passwordEncoder.encode(request.newPassword()),
                 currentUser.id());
 
+        // 保留目前這個 token，其餘 session 全部撤銷，降低舊裝置風險。
         jdbcTemplate.update("""
                 UPDATE guest_sessions
                 SET revoked_at = CURRENT_TIMESTAMP
@@ -97,6 +102,7 @@ public class ProfileService {
     private UserProfile getCurrentUser(String authorization) {
         String tokenHash = currentTokenHash(authorization);
         try {
+            // 只接受未撤銷、未過期、且使用者仍為 ACTIVE 的 session。
             return jdbcTemplate.queryForObject("""
                             SELECT u.id, u.username, u.email, u.display_name, u.avatar_url, u.status,
                                    u.last_seen_at, u.created_at, u.updated_at, u.password_hash
@@ -144,10 +150,12 @@ public class ProfileService {
     private String currentTokenHash(String authorization) {
         String token = parseBearerToken(authorization)
                 .orElseThrow(() -> new AuthException(HttpStatus.UNAUTHORIZED, "Missing bearer token"));
+        // 呼叫端只傳明文 token，查詢資料庫前要轉成與 guest_sessions 相同的 hash。
         return hash(token);
     }
 
     private Optional<String> parseBearerToken(String authorization) {
+        // Authorization header 必須是 Bearer token 格式。
         if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
             return Optional.empty();
         }
@@ -156,6 +164,7 @@ public class ProfileService {
     }
 
     private String normalizeRequiredText(String value, String blankMessage) {
+        // null 代表不更新；有帶值時不可只包含空白。
         if (value == null) {
             return null;
         }
@@ -167,6 +176,7 @@ public class ProfileService {
     }
 
     private String normalizeOptionalText(String value) {
+        // 選填欄位允許用空字串清成 null。
         if (value == null) {
             return null;
         }
@@ -175,6 +185,7 @@ public class ProfileService {
     }
 
     private String normalizeEmail(String value) {
+        // email 若有帶入就不能是空字串；格式驗證交給 DTO annotation。
         if (value == null) {
             return null;
         }
@@ -187,6 +198,7 @@ public class ProfileService {
 
     private String hash(String value) {
         try {
+            // 與 AuthService 保持一致，使用 SHA-256 比對 session token。
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException exception) {

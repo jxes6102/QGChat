@@ -31,6 +31,7 @@ public class ProfileController {
     public UserProfileResponse getProfile(
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
+        // 依 bearer token 取得目前登入使用者的個人資料。
         return profileService.getProfile(authorization);
     }
 
@@ -39,6 +40,7 @@ public class ProfileController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @Valid @RequestBody UpdateProfileRequest request
     ) {
+        // 支援部分更新：只更新 request 中有帶入的欄位。
         return profileService.updateProfile(authorization, request);
     }
 
@@ -47,10 +49,11 @@ public class ProfileController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @Valid @RequestBody ChangePasswordRequest request
     ) {
+        // 修改密碼成功後，service 會撤銷其他登入 session。
         return Map.of("passwordChanged", profileService.changePassword(authorization, request));
     }
 
-    // 將會員資料相關錯誤統一轉成 JSON 格式回傳給前端。
+    // 將個人資料流程的業務錯誤統一轉成 JSON。
     @ExceptionHandler(AuthException.class)
     public ResponseEntity<Map<String, String>> handleAuthException(AuthException exception) {
         return ResponseEntity.status(exception.status())

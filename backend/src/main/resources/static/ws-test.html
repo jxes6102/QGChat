@@ -201,7 +201,7 @@
             <input id="wsUrl" value="">
 
             <label for="token">Bearer Token</label>
-            <textarea id="token" placeholder="貼上 user token，不用加 Bearer 也可以"></textarea>
+            <textarea id="token" placeholder="貼上 user token，可省略 Bearer 前綴"></textarea>
 
             <label for="conversationId">Conversation ID</label>
             <input id="conversationId" placeholder="例如 68f4f890-681e-42b4-8457-6a739088d7df">
@@ -222,8 +222,8 @@
             </div>
 
             <p class="hint">
-                測試順序：先 Connect，看到 CONNECTED 後按 Subscribe，再按 Send WS。
-                Send REST 會呼叫 REST API 新增訊息，用來確認 REST 發訊息後 socket 也能收到廣播。
+                測試順序：先 Connect，看到 CONNECTED 後 Subscribe，再按 Send WS。
+                Send REST 會透過 REST API 發送訊息，可用來確認 REST 發送是否也會廣播到 socket。
             </p>
         </section>
 
@@ -250,6 +250,7 @@
     const statusDot = document.querySelector("#statusDot");
     const statusText = document.querySelector("#statusText");
 
+    // 預設連到目前後端主機的原生 WebSocket STOMP 端點。
     wsUrlInput.value = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/chat`;
 
     document.querySelector("#connectBtn").addEventListener("click", connect);
@@ -270,6 +271,7 @@
 
         socket.addEventListener("open", () => {
             log("WS OPEN");
+            // WebSocket 開啟後手動送 STOMP CONNECT frame。
             sendFrame("CONNECT", {
                 "accept-version": "1.2",
                 "heart-beat": "0,0"
@@ -298,6 +300,7 @@
         ensureConnected();
         const conversationId = requireConversationId();
         subscribedConversationId = conversationId;
+        // 訂閱單一 conversation 的 topic，後端會把新訊息廣播到這裡。
         sendFrame("SUBSCRIBE", {
             id: `sub-${subscriptionId++}`,
             destination: `/topic/conversations/${conversationId}`
@@ -309,6 +312,7 @@
         ensureConnected();
         const conversationId = requireConversationId();
         const payload = buildPayload(conversationId);
+        // 發送到 /app/chat.send，會被 ChatSocketController 的 @MessageMapping 接住。
         sendFrame("SEND", {
             destination: "/app/chat.send",
             "content-type": "application/json"
@@ -320,6 +324,7 @@
         const conversationId = requireConversationId();
         const token = normalizeToken(tokenInput.value);
         const payload = buildPayload(conversationId);
+        // REST endpoint 不需要 authorization/conversationId 放在 body。
         delete payload.authorization;
         delete payload.conversationId;
 
@@ -351,6 +356,7 @@
             throw new Error("WebSocket 尚未連線");
         }
 
+        // STOMP frame 格式：COMMAND + headers + 空行 + body + NULL byte。
         const headerLines = Object.entries(headers).map(([key, value]) => `${key}:${value}`);
         const frame = `${command}\n${headerLines.join("\n")}\n\n${body}${NULL}`;
         socket.send(frame);
@@ -382,6 +388,7 @@
     }
 
     function parseFrames(raw) {
+        // 後端可能一次送多個 STOMP frame，需用 NULL byte 拆分。
         return raw.split(NULL)
             .filter(part => part.trim().length > 0)
             .map(part => {
@@ -403,6 +410,7 @@
 
     function buildPayload(conversationId) {
         const metadata = metadataInput.value.trim() || "{}";
+        // 先在前端驗證 metadata 是合法 JSON，避免送出後才由 API 拒絕。
         JSON.parse(metadata);
         return {
             authorization: normalizeToken(tokenInput.value),
@@ -417,7 +425,7 @@
     function normalizeToken(value) {
         const token = value.trim();
         if (!token) {
-            throw new Error("請先貼上 token");
+            throw new Error("請貼上 token");
         }
         return token.startsWith("Bearer ") ? token : `Bearer ${token}`;
     }
@@ -425,7 +433,7 @@
     function requireConversationId() {
         const conversationId = conversationInput.value.trim();
         if (!conversationId) {
-            throw new Error("請先填 conversationId");
+            throw new Error("請填寫 conversationId");
         }
         return conversationId;
     }

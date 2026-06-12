@@ -3,7 +3,7 @@ package training.QGChat.chat.dto;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-// 回傳給前端的單一聊天訊息資料。
+// 對外回傳的單則聊天訊息資料。
 public record ChatMessageResponse(
         UUID id,
         UUID conversationId,

@@ -5,7 +5,7 @@ import jakarta.validation.constraints.Size;
 
 import java.util.Set;
 
-// 建立群組聊天室的請求資料；memberUsernames 不含建立者也可以，service 會自動加入 owner。
+// 建立群組對話的輸入資料；memberUsernames 不含 owner，service 會自動加入建立者。
 public record CreateGroupConversationRequest(
         @NotBlank @Size(max = 120) String name,
         String description,

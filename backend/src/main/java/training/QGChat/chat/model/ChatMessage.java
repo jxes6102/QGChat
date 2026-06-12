@@ -6,7 +6,7 @@ import training.QGChat.chat.dto.ChatMessageResponse;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
-// 對應 messages 查詢結果的內部資料模型。
+// 對應 messages 查詢結果的內部資料模型，集中處理 DB 欄位到 Java 欄位的映射。
 public record ChatMessage(
         UUID id,
         UUID conversationId,
@@ -22,7 +22,7 @@ public record ChatMessage(
 ) {
 
     public static RowMapper<ChatMessage> rowMapper() {
-        // JdbcTemplate 共用 mapper，確保 REST 與 Socket 取得一致的訊息欄位。
+        // JdbcTemplate 共用 mapper，讓 REST 與 WebSocket 回傳相同格式的訊息資料。
         return (rs, rowNum) -> new ChatMessage(
                 rs.getObject("id", UUID.class),
                 rs.getObject("conversation_id", UUID.class),
@@ -39,7 +39,7 @@ public record ChatMessage(
     }
 
     public ChatMessageResponse toResponse() {
-        // 將資料庫模型轉成 API 回應，避免 controller 直接依賴 RowMapper 結構。
+        // 轉成 API DTO，避免 controller 直接依賴資料庫 mapper 細節。
         return new ChatMessageResponse(
                 id,
                 conversationId,

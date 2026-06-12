@@ -4,6 +4,7 @@ import org.springframework.jdbc.core.RowMapper;
 
 import java.util.UUID;
 
+// 認證流程使用的帳號資料，只查登入與 session 建立所需欄位。
 public record UserAccount(
         UUID id,
         String username,
@@ -13,6 +14,7 @@ public record UserAccount(
         String status
 ) {
     public static RowMapper<UserAccount> rowMapper() {
+        // 將 users 查詢結果映射成 UserAccount record。
         return (rs, rowNum) -> new UserAccount(
                 rs.getObject("id", UUID.class),
                 rs.getString("username"),

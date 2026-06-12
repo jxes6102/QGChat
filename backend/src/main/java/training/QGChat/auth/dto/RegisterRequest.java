@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+// 註冊會員帳號的輸入資料。
 public record RegisterRequest(
         @NotBlank
         @Size(max = 50)

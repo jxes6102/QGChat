@@ -43,7 +43,7 @@ public class ChatController {
     public List<ConversationResponse> listConversations(
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
-        // 取得目前登入者參與的所有聊天室，包含最後一則訊息與未讀數。
+        // 讀取目前登入者的對話列表，包含最後訊息與未讀數。
         return chatService.listConversations(authorization);
     }
 
@@ -52,7 +52,7 @@ public class ChatController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @Valid @RequestBody CreateDirectConversationRequest request
     ) {
-        // 建立或取得兩人既有的一對一聊天室，避免重複開同一組對話。
+        // 建立或取得與指定 username 的一對一私聊。
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(chatService.createDirectConversation(authorization, request));
     }
@@ -62,7 +62,7 @@ public class ChatController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @Valid @RequestBody CreateGroupConversationRequest request
     ) {
-        // 建立群組與對應的 GROUP conversation，並把指定成員加入參與者清單。
+        // 建立群組與對應的 GROUP conversation，並加入初始成員。
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(chatService.createGroupConversation(authorization, request));
     }
@@ -74,7 +74,7 @@ public class ChatController {
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime before
     ) {
-        // 以 sent_at 做游標分頁；before 有值時只取該時間之前的訊息。
+        // 使用 before 參數向前分頁，取得指定時間以前的訊息。
         return chatService.listMessages(authorization, conversationId, limit, before);
     }
 
@@ -85,7 +85,7 @@ public class ChatController {
             @Valid @RequestBody SendMessageRequest request
     ) {
         ChatMessageResponse message = chatService.sendMessage(authorization, conversationId, request);
-        // REST 送訊息成功後，也同步推播給訂閱同一聊天室 topic 的 WebSocket client。
+        // REST 發送成功後，同步廣播到該 conversation 的 WebSocket topic。
         messagingTemplate.convertAndSend("/topic/conversations/" + conversationId, message);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(message);
@@ -97,13 +97,13 @@ public class ChatController {
             @PathVariable UUID conversationId,
             @Valid @RequestBody MarkReadRequest request
     ) {
-        // 更新單一使用者在此聊天室的最後已讀訊息。
+        // 更新目前使用者在這個對話中的最後已讀訊息。
         return chatService.markRead(authorization, conversationId, request);
     }
 
     @ExceptionHandler(AuthException.class)
     public ResponseEntity<Map<String, String>> handleAuthException(AuthException exception) {
-        // 將聊天功能內的授權與商業邏輯錯誤統一轉成 JSON 回應。
+        // 將聊天相關權限與驗證錯誤統一轉成前端可讀的 JSON。
         return ResponseEntity.status(exception.status())
                 .body(Map.of("message", exception.getMessage()));
     }
