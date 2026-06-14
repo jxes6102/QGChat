@@ -6,6 +6,9 @@ node_modules/
 # Nuxt / Vue
 .nuxt/
 .output/
+.data/
+.nitro/
+.cache/
 dist/
 .vite/
 *.tsbuildinfo
@@ -58,6 +61,7 @@ pgdata/
 
 # IDEs and editors
 .idea/
+.fleet/
 *.iml
 .vscode/
 !.vscode/extensions.json
