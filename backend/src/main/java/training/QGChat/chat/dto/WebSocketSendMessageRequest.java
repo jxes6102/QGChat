@@ -5,9 +5,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.util.UUID;
 
-// WebSocket 發送訊息時，authorization 放在 payload 中，方便 STOMP client 傳 token。
 public record WebSocketSendMessageRequest(
-        @NotBlank String authorization,
         @NotNull UUID conversationId,
         String type,
         @NotBlank String content,

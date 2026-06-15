@@ -63,6 +63,9 @@ const relativeTime = (date?: string | null) => {
   }
 }
 
+const chronologicalMessages = (items: ChatMessageResponse[]) =>
+  [...items].sort((left, right) => new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime())
+
 const showError = (error: unknown) => {
   const fetchError = error as { data?: { message?: string }, message?: string }
   errorMessage.value = fetchError.data?.message || fetchError.message || '操作失敗，請稍後再試'
@@ -115,7 +118,7 @@ const selectConversation = async (conversationId: string) => {
   selectedConversationId.value = conversationId
   errorMessage.value = ''
   try {
-    messages.value = await api.messages(conversationId)
+    messages.value = chronologicalMessages(await api.messages(conversationId))
     subscribeConversation(conversationId)
     const lastMessage = messages.value[messages.value.length - 1]
     if (lastMessage) {
@@ -166,6 +169,9 @@ const connectSocket = async () => {
   const { Client } = await import('@stomp/stompjs')
   stompClient = new Client({
     brokerURL: publicWsBase(),
+    connectHeaders: {
+      Authorization: `Bearer ${token.value}`
+    },
     reconnectDelay: 4000,
     debug: () => {}
   })

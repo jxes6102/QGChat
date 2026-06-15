@@ -70,7 +70,7 @@ onMounted(loadProfile)
     <section class="mx-auto w-full max-w-xl rounded-lg border border-neutral-800 bg-neutral-900 p-6 shadow-2xl shadow-black/40">
       <a href="/" class="text-sm font-medium text-cyan-300">返回聊天室</a>
       <h1 class="mt-2 text-3xl font-semibold tracking-normal text-white">個人資料</h1>
-      <p class="mt-3 text-sm leading-6 text-neutral-400">更新顯示名稱、Email 與頭像 URL。</p>
+      <p class="mt-3 text-sm leading-6 text-neutral-400">更新顯示名稱、電子郵件與頭像 URL。</p>
 
       <form class="mt-7 space-y-4" @submit.prevent="updateProfile">
         <label class="block text-sm">
@@ -78,7 +78,7 @@ onMounted(loadProfile)
           <input v-model="profileDraft.displayName" class="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-white outline-none transition focus:border-cyan-400">
         </label>
         <label class="block text-sm">
-          <span class="mb-1 block text-neutral-300">Email</span>
+          <span class="mb-1 block text-neutral-300">電子郵件</span>
           <input v-model="profileDraft.email" type="email" class="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-white outline-none transition focus:border-cyan-400">
         </label>
         <label class="block text-sm">

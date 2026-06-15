@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import training.QGChat.auth.exception.AuthException;
+import training.QGChat.auth.service.SessionAuthService;
 import training.QGChat.chat.dto.ChatMessageResponse;
 import training.QGChat.chat.dto.ConversationResponse;
 import training.QGChat.chat.dto.CreateDirectConversationRequest;
@@ -16,12 +17,8 @@ import training.QGChat.chat.dto.MarkReadRequest;
 import training.QGChat.chat.dto.SendMessageRequest;
 import training.QGChat.chat.model.ChatMessage;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -30,16 +27,17 @@ import java.util.UUID;
 
 @Service
 public class ChatService {
-    private static final String BEARER_PREFIX = "Bearer ";
     // 與資料庫 schema 的 message_type enum 保持一致。
     private static final Set<String> MESSAGE_TYPES = Set.of("TEXT", "IMAGE", "FILE", "SYSTEM");
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final SessionAuthService sessionAuthService;
 
-    public ChatService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+    public ChatService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper, SessionAuthService sessionAuthService) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.sessionAuthService = sessionAuthService;
     }
 
     @Transactional(readOnly = true)
@@ -334,43 +332,7 @@ public class ChatService {
     }
 
     private UUID requireUserId(String authorization) {
-        String token = parseBearerToken(authorization)
-                .orElseThrow(() -> new AuthException(HttpStatus.UNAUTHORIZED, "Missing bearer token"));
-        try {
-            // guest_sessions 只存 token 的 SHA-256 hash，避免資料庫保存明文 token。
-            return jdbcTemplate.queryForObject("""
-                            SELECT u.id
-                            FROM guest_sessions gs
-                            JOIN users u ON u.id = gs.user_id
-                            WHERE gs.session_token_hash = ?
-                              AND gs.revoked_at IS NULL
-                              AND gs.expires_at > CURRENT_TIMESTAMP
-                              AND u.status = 'ACTIVE'
-                            """,
-                    UUID.class,
-                    hash(token));
-        } catch (EmptyResultDataAccessException exception) {
-            throw new AuthException(HttpStatus.UNAUTHORIZED, "Invalid or expired bearer token");
-        }
-    }
-
-    private Optional<String> parseBearerToken(String authorization) {
-        // 僅接受標準 Authorization: Bearer <token> 格式。
-        if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
-            return Optional.empty();
-        }
-        String token = authorization.substring(BEARER_PREFIX.length()).trim();
-        return token.isEmpty() ? Optional.empty() : Optional.of(token);
-    }
-
-    private String hash(String value) {
-        try {
-            // 與 AuthService 使用相同 hash 規則，才能比對 guest_sessions.session_token_hash。
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 is not available", exception);
-        }
+        return sessionAuthService.requireActiveSession(authorization).userId();
     }
 
     private void requireActiveUser(UUID userId) {

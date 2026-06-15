@@ -63,7 +63,7 @@ const submitAuth = async () => {
 
       <form class="space-y-4" @submit.prevent="submitAuth">
         <label v-if="!isRegistering" class="block text-sm">
-          <span class="mb-1 block text-neutral-300">帳號或 Email</span>
+          <span class="mb-1 block text-neutral-300">帳號或電子郵件</span>
           <input v-model="authForm.account" class="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-white outline-none transition focus:border-cyan-400" autocomplete="username">
         </label>
 
@@ -73,7 +73,7 @@ const submitAuth = async () => {
             <input v-model="authForm.username" class="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-white outline-none transition focus:border-cyan-400" autocomplete="username">
           </label>
           <label class="block text-sm">
-            <span class="mb-1 block text-neutral-300">Email</span>
+            <span class="mb-1 block text-neutral-300">電子郵件</span>
             <input v-model="authForm.email" type="email" class="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-white outline-none transition focus:border-cyan-400" autocomplete="email">
           </label>
           <label class="block text-sm">

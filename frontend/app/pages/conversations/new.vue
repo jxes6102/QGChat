@@ -90,7 +90,7 @@ const createGroup = async () => {
 
       <form v-if="mode === 'direct'" class="mt-5 space-y-4" @submit.prevent="createDirect">
         <label class="block text-sm">
-          <span class="mb-1 block text-neutral-300">對方 username</span>
+          <span class="mb-1 block text-neutral-300">對方使用者名稱</span>
           <input v-model="targetUsername" class="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-white outline-none transition focus:border-cyan-400" autocomplete="off">
         </label>
 
@@ -115,8 +115,8 @@ const createGroup = async () => {
           <input v-model="groupDraft.avatarUrl" class="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-white outline-none transition focus:border-cyan-400">
         </label>
         <label class="block text-sm">
-          <span class="mb-1 block text-neutral-300">成員 username</span>
-          <input v-model="groupDraft.members" class="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-white outline-none transition focus:border-cyan-400" placeholder="alice,bob">
+          <span class="mb-1 block text-neutral-300">成員使用者名稱</span>
+          <input v-model="groupDraft.members" class="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-white outline-none transition focus:border-cyan-400" placeholder="alice, bob">
         </label>
         <label class="flex items-center gap-2 text-sm text-neutral-300">
           <input v-model="groupDraft.isPrivate" type="checkbox" class="h-4 w-4 rounded border-neutral-700 bg-neutral-900 text-cyan-400">

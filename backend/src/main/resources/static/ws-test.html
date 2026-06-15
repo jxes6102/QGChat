@@ -274,7 +274,8 @@
             // WebSocket 開啟後手動送 STOMP CONNECT frame。
             sendFrame("CONNECT", {
                 "accept-version": "1.2",
-                "heart-beat": "0,0"
+                "heart-beat": "0,0",
+                "Authorization": normalizeToken(tokenInput.value)
             });
         });
 
@@ -315,7 +316,8 @@
         // 發送到 /app/chat.send，會被 ChatSocketController 的 @MessageMapping 接住。
         sendFrame("SEND", {
             destination: "/app/chat.send",
-            "content-type": "application/json"
+            "content-type": "application/json",
+            "Authorization": normalizeToken(tokenInput.value)
         }, JSON.stringify(payload));
         log(`SEND /app/chat.send\n${JSON.stringify(payload, null, 2)}`);
     }
@@ -324,8 +326,7 @@
         const conversationId = requireConversationId();
         const token = normalizeToken(tokenInput.value);
         const payload = buildPayload(conversationId);
-        // REST endpoint 不需要 authorization/conversationId 放在 body。
-        delete payload.authorization;
+        // REST endpoint 不需要 conversationId 放在 body。
         delete payload.conversationId;
 
         const response = await fetch(`/api/chats/conversations/${conversationId}/messages`, {
@@ -413,7 +414,6 @@
         // 先在前端驗證 metadata 是合法 JSON，避免送出後才由 API 拒絕。
         JSON.parse(metadata);
         return {
-            authorization: normalizeToken(tokenInput.value),
             conversationId,
             type: "TEXT",
             content: contentInput.value.trim(),
