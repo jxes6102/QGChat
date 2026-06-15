@@ -1,4 +1,5 @@
 import { $fetch } from 'ofetch'
+import { sourceUrlDefaults } from '../config/sourceUrls'
 import type {
   AuthResponse,
   ChatMessageResponse,
@@ -21,9 +22,9 @@ type NuxtClientWindow = Window & {
 }
 
 const publicApiBase = () => {
-  if (typeof window === 'undefined') return 'http://localhost:8082/api'
+  if (typeof window === 'undefined') return sourceUrlDefaults.apiBase
 
-  return (window as NuxtClientWindow).__NUXT__?.config?.public?.apiBase || 'http://localhost:8082/api'
+  return (window as NuxtClientWindow).__NUXT__?.config?.public?.apiBase || sourceUrlDefaults.apiBase
 }
 
 export const useQGChatApi = () => {

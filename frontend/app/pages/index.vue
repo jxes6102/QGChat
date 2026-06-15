@@ -2,6 +2,7 @@
 import type { Client as StompClient } from '@stomp/stompjs'
 import { formatDistanceToNowStrict } from 'date-fns/formatDistanceToNowStrict'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { sourceUrlDefaults } from '../config/sourceUrls'
 import { qgChatSession } from '../composables/useQGChatSession'
 import { useQGChatApi } from '../composables/useQGChatApi'
 import type { ChatMessageResponse, ConversationResponse, UserProfileResponse } from '../types/qgchat'
@@ -33,9 +34,9 @@ const selectedConversation = computed(() =>
 )
 
 const publicWsBase = () => {
-  if (typeof window === 'undefined') return 'ws://localhost:8082/ws/chat'
+  if (typeof window === 'undefined') return sourceUrlDefaults.wsBase
 
-  return (window as NuxtClientWindow).__NUXT__?.config?.public?.wsBase || 'ws://localhost:8082/ws/chat'
+  return (window as NuxtClientWindow).__NUXT__?.config?.public?.wsBase || sourceUrlDefaults.wsBase
 }
 
 const preferredConversationId = () => {
