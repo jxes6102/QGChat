@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import training.QGChat.auth.exception.AuthException;
+import training.QGChat.chat.dto.AddGroupMembersRequest;
 import training.QGChat.chat.dto.ChatMessageResponse;
 import training.QGChat.chat.dto.ConversationResponse;
 import training.QGChat.chat.dto.CreateDirectConversationRequest;
@@ -65,6 +66,15 @@ public class ChatController {
         // 建立群組與對應的 GROUP conversation，並加入初始成員。
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(chatService.createGroupConversation(authorization, request));
+    }
+
+    @PostMapping("/groups/{groupId}/members")
+    public ConversationResponse addGroupMembers(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable UUID groupId,
+            @Valid @RequestBody AddGroupMembersRequest request
+    ) {
+        return chatService.addGroupMembers(authorization, groupId, request);
     }
 
     @GetMapping("/conversations/{conversationId}/messages")

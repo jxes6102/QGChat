@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import training.QGChat.auth.exception.AuthException;
 import training.QGChat.auth.service.SessionAuthService;
+import training.QGChat.chat.dto.AddGroupMembersRequest;
 import training.QGChat.chat.dto.ChatMessageResponse;
 import training.QGChat.chat.dto.ConversationResponse;
 import training.QGChat.chat.dto.CreateDirectConversationRequest;
@@ -206,6 +207,39 @@ public class ChatService {
         return getConversation(authorization, conversationId);
     }
 
+    @Transactional
+    public ConversationResponse addGroupMembers(String authorization, UUID groupId, AddGroupMembersRequest request) {
+        UUID actorId = requireUserId(authorization);
+        UUID conversationId = findGroupConversationId(groupId)
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group not found"));
+        requireGroupManager(groupId, actorId);
+
+        for (UUID memberId : normalizedMemberUsernames(request.memberUsernames(), actorId)) {
+            jdbcTemplate.update("""
+                            INSERT INTO group_members (group_id, user_id, role, status, invited_by, joined_at)
+                            VALUES (?, ?, 'MEMBER', 'ACTIVE', ?, CURRENT_TIMESTAMP)
+                            ON CONFLICT (group_id, user_id) DO UPDATE
+                            SET status = 'ACTIVE',
+                                invited_by = EXCLUDED.invited_by,
+                                joined_at = COALESCE(group_members.joined_at, CURRENT_TIMESTAMP),
+                                updated_at = CURRENT_TIMESTAMP
+                            """,
+                    groupId,
+                    memberId,
+                    actorId);
+            jdbcTemplate.update("""
+                            INSERT INTO conversation_participants (conversation_id, user_id)
+                            VALUES (?, ?)
+                            ON CONFLICT (conversation_id, user_id) DO NOTHING
+                            """,
+                    conversationId,
+                    memberId);
+        }
+
+        jdbcTemplate.update("UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", conversationId);
+        return getConversation(authorization, conversationId);
+    }
+
     @Transactional(readOnly = true)
     public ConversationResponse getConversation(String authorization, UUID conversationId) {
         UUID userId = requireUserId(authorization);
@@ -378,6 +412,40 @@ public class ChatService {
                 userId);
         if (!Boolean.TRUE.equals(exists)) {
             throw new AuthException(HttpStatus.FORBIDDEN, "You are not a participant in this conversation");
+        }
+    }
+
+    private void requireGroupManager(UUID groupId, UUID userId) {
+        Boolean exists = jdbcTemplate.queryForObject("""
+                        SELECT EXISTS (
+                            SELECT 1
+                            FROM group_members
+                            WHERE group_id = ?
+                              AND user_id = ?
+                              AND status = 'ACTIVE'
+                              AND role IN ('OWNER', 'ADMIN')
+                        )
+                        """,
+                Boolean.class,
+                groupId,
+                userId);
+        if (!Boolean.TRUE.equals(exists)) {
+            throw new AuthException(HttpStatus.FORBIDDEN, "Only group owners or admins can add members");
+        }
+    }
+
+    private Optional<UUID> findGroupConversationId(UUID groupId) {
+        try {
+            return Optional.ofNullable(jdbcTemplate.queryForObject("""
+                            SELECT id
+                            FROM conversations
+                            WHERE group_id = ?
+                              AND type = 'GROUP'
+                            """,
+                    UUID.class,
+                    groupId));
+        } catch (EmptyResultDataAccessException exception) {
+            return Optional.empty();
         }
     }
 

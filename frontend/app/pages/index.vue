@@ -24,13 +24,20 @@ const conversations = ref<ConversationResponse[]>([])
 const selectedConversationId = ref('')
 const messages = ref<ChatMessageResponse[]>([])
 const messageDraft = ref('')
+const memberDraft = ref('')
 const isBooting = ref(false)
+const isAddingMembers = ref(false)
 const errorMessage = ref('')
+const memberSuccessMessage = ref('')
 let stompClient: StompClient | null = null
 let activeSubscription: { unsubscribe: () => void } | null = null
 
 const selectedConversation = computed(() =>
   conversations.value.find((conversation) => conversation.id === selectedConversationId.value) || null
+)
+
+const canAddMembers = computed(() =>
+  selectedConversation.value?.type === 'GROUP' && Boolean(selectedConversation.value.groupId)
 )
 
 const publicWsBase = () => {
@@ -117,6 +124,7 @@ const signOut = async () => {
 const selectConversation = async (conversationId: string) => {
   selectedConversationId.value = conversationId
   errorMessage.value = ''
+  memberSuccessMessage.value = ''
   try {
     messages.value = chronologicalMessages(await api.messages(conversationId))
     subscribeConversation(conversationId)
@@ -145,6 +153,33 @@ const sendMessage = async () => {
   } catch (error) {
     messageDraft.value = content
     showError(error)
+  }
+}
+
+const addGroupMembers = async () => {
+  const groupId = selectedConversation.value?.groupId
+  const memberUsernames = memberDraft.value
+    .split(',')
+    .map((member) => member.trim())
+    .filter(Boolean)
+
+  if (!groupId || memberUsernames.length === 0) return
+
+  errorMessage.value = ''
+  memberSuccessMessage.value = ''
+  isAddingMembers.value = true
+  try {
+    const updatedConversation = await api.addGroupMembers(groupId, memberUsernames)
+    const index = conversations.value.findIndex((conversation) => conversation.id === updatedConversation.id)
+    if (index >= 0) {
+      conversations.value[index] = updatedConversation
+    }
+    memberDraft.value = ''
+    memberSuccessMessage.value = '成員已加入群組'
+  } catch (error) {
+    showError(error)
+  } finally {
+    isAddingMembers.value = false
   }
 }
 
@@ -315,6 +350,18 @@ onBeforeUnmount(disconnectSocket)
             <UIcon name="i-heroicons-arrow-right" class="h-4 w-4" />
           </a>
         </nav>
+
+        <form v-if="canAddMembers" class="mt-6 border-t border-neutral-800 pt-5" @submit.prevent="addGroupMembers">
+          <h3 class="text-sm font-semibold text-white">新增群組成員</h3>
+          <label class="mt-3 block text-sm">
+            <span class="mb-1 block text-neutral-300">使用者名稱</span>
+            <input v-model="memberDraft" class="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-400" placeholder="alice, bob" autocomplete="off">
+          </label>
+          <p v-if="memberSuccessMessage" class="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">{{ memberSuccessMessage }}</p>
+          <button class="mt-3 w-full rounded-md bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-neutral-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60" :disabled="isAddingMembers || !memberDraft.trim()">
+            {{ isAddingMembers ? '加入中...' : '加入成員' }}
+          </button>
+        </form>
       </aside>
     </section>
   </main>

@@ -54,6 +54,8 @@ export const useQGChatApi = () => {
       request<ConversationResponse>('/chats/direct', { method: 'POST', body: { targetUsername } }),
     createGroup: (body: { name: string, description?: string, avatarUrl?: string, isPrivate?: boolean, memberUsernames?: string[] }) =>
       request<ConversationResponse>('/chats/groups', { method: 'POST', body }),
+    addGroupMembers: (groupId: string, memberUsernames: string[]) =>
+      request<ConversationResponse>(`/chats/groups/${groupId}/members`, { method: 'POST', body: { memberUsernames } }),
     messages: (conversationId: string, limit = 50) =>
       request<ChatMessageResponse[]>(`/chats/conversations/${conversationId}/messages`, { query: { limit } }),
     sendMessage: (conversationId: string, body: SendMessageRequest) =>
