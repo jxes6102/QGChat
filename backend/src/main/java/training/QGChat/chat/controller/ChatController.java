@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import training.QGChat.auth.dto.ApiErrorResponse;
 import training.QGChat.auth.exception.AuthException;
 import training.QGChat.chat.dto.AddGroupMembersRequest;
 import training.QGChat.chat.dto.ChatMessageResponse;
@@ -31,7 +32,6 @@ import training.QGChat.chat.service.ChatService;
 
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -169,9 +169,9 @@ public class ChatController {
     }
 
     @ExceptionHandler(AuthException.class)
-    public ResponseEntity<Map<String, String>> handleAuthException(AuthException exception) {
+    public ResponseEntity<ApiErrorResponse> handleAuthException(AuthException exception) {
         // 將聊天相關權限與驗證錯誤統一轉成前端可讀的 JSON。
         return ResponseEntity.status(exception.status())
-                .body(Map.of("message", exception.getMessage()));
+                .body(new ApiErrorResponse(exception.code(), exception.getMessage()));
     }
 }

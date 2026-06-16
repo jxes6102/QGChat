@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import training.QGChat.auth.dto.ApiErrorResponse;
 import training.QGChat.auth.exception.AuthException;
 import training.QGChat.profile.dto.ChangePasswordRequest;
 import training.QGChat.profile.dto.UpdateProfileRequest;
@@ -55,8 +56,8 @@ public class ProfileController {
 
     // 將個人資料流程的業務錯誤統一轉成 JSON。
     @ExceptionHandler(AuthException.class)
-    public ResponseEntity<Map<String, String>> handleAuthException(AuthException exception) {
+    public ResponseEntity<ApiErrorResponse> handleAuthException(AuthException exception) {
         return ResponseEntity.status(exception.status())
-                .body(Map.of("message", exception.getMessage()));
+                .body(new ApiErrorResponse(exception.code(), exception.getMessage()));
     }
 }

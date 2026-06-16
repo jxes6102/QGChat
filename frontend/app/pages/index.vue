@@ -7,6 +7,7 @@ import { qgChatSession } from '../composables/useQGChatSession'
 import { useQGChatApi } from '../composables/useQGChatApi'
 import type { ChatMessageResponse, ConversationResponse, GroupMemberResponse, UserProfileResponse } from '../types/qgchat'
 import { localizeQGChatError } from '../utils/qgchatErrors'
+import { isValidUsername, uniqueCsvItems } from '../utils/qgchatValidation'
 
 type NuxtClientWindow = Window & {
   __NUXT__?: {
@@ -204,12 +205,14 @@ const sendMessage = async () => {
 
 const addGroupMembers = async () => {
   const groupId = selectedConversation.value?.groupId
-  const memberUsernames = memberDraft.value
-    .split(',')
-    .map((member) => member.trim())
-    .filter(Boolean)
+  const memberUsernames = uniqueCsvItems(memberDraft.value)
 
   if (!groupId || memberUsernames.length === 0) return
+  const invalidMember = memberUsernames.find((member) => !isValidUsername(member))
+  if (invalidMember) {
+    errorMessage.value = `成員使用者名稱格式不正確：${invalidMember}`
+    return
+  }
 
   errorMessage.value = ''
   memberSuccessMessage.value = ''

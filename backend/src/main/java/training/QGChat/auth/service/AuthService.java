@@ -16,6 +16,7 @@ import training.QGChat.auth.dto.RegisterRequest;
 import training.QGChat.auth.dto.ResetPasswordRequest;
 import training.QGChat.auth.dto.ResetPasswordResponse;
 import training.QGChat.auth.exception.AuthException;
+import training.QGChat.auth.exception.ErrorCode;
 import training.QGChat.auth.model.UserAccount;
 
 import java.security.SecureRandom;
@@ -53,10 +54,10 @@ public class AuthService {
     @Transactional
     public AuthResponse register(RegisterRequest request, String ipAddress, String userAgent) {
         if (existsByUsername(request.username())) {
-            throw new AuthException(HttpStatus.CONFLICT, "Username already exists");
+            throw new AuthException(HttpStatus.CONFLICT, ErrorCode.USERNAME_ALREADY_EXISTS, "使用者名稱已被使用");
         }
         if (existsByEmail(request.email())) {
-            throw new AuthException(HttpStatus.CONFLICT, "Email already exists");
+            throw new AuthException(HttpStatus.CONFLICT, ErrorCode.EMAIL_ALREADY_EXISTS, "電子郵件已被使用");
         }
 
         UserAccount user = jdbcTemplate.queryForObject("""
@@ -76,11 +77,11 @@ public class AuthService {
     @Transactional
     public AuthResponse login(LoginRequest request, String ipAddress, String userAgent) {
         UserAccount user = findByUsernameOrEmail(request.account())
-                .orElseThrow(() -> new AuthException(HttpStatus.UNAUTHORIZED, "Invalid account or password"));
+                .orElseThrow(() -> new AuthException(HttpStatus.UNAUTHORIZED, ErrorCode.INVALID_ACCOUNT_OR_PASSWORD, "帳號或密碼錯誤"));
 
         if (!"ACTIVE".equals(user.status()) || user.passwordHash() == null
                 || !passwordEncoder.matches(request.password(), user.passwordHash())) {
-            throw new AuthException(HttpStatus.UNAUTHORIZED, "Invalid account or password");
+            throw new AuthException(HttpStatus.UNAUTHORIZED, ErrorCode.INVALID_ACCOUNT_OR_PASSWORD, "帳號或密碼錯誤");
         }
 
         jdbcTemplate.update("UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?", user.id());
@@ -115,7 +116,7 @@ public class AuthService {
     @Transactional
     public ResetPasswordResponse resetPassword(ResetPasswordRequest request) {
         UUID userId = consumePasswordResetToken(request.token())
-                .orElseThrow(() -> new AuthException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token"));
+                .orElseThrow(() -> new AuthException(HttpStatus.BAD_REQUEST, ErrorCode.INVALID_RESET_TOKEN, "重設密碼連結無效或已過期"));
 
         int updatedUsers = jdbcTemplate.update("""
                         UPDATE users
@@ -127,7 +128,7 @@ public class AuthService {
                 passwordEncoder.encode(request.newPassword()), userId);
 
         if (updatedUsers == 0) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token");
+            throw new AuthException(HttpStatus.BAD_REQUEST, ErrorCode.INVALID_RESET_TOKEN, "重設密碼連結無效或已過期");
         }
 
         jdbcTemplate.update("""

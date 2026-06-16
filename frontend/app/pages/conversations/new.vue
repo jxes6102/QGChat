@@ -3,6 +3,7 @@ import { reactive, ref } from 'vue'
 import { qgChatSession } from '../../composables/useQGChatSession'
 import { useQGChatApi } from '../../composables/useQGChatApi'
 import { localizeQGChatError } from '../../utils/qgchatErrors'
+import { isValidOptionalUrl, isValidUsername, uniqueCsvItems } from '../../utils/qgchatValidation'
 
 const api = useQGChatApi()
 const mode = ref<'direct' | 'group'>('direct')
@@ -28,11 +29,19 @@ const ensureSignedIn = () => {
   return false
 }
 
+const validateGroupMembers = (memberUsernames: string[]) => {
+  const invalidMember = memberUsernames.find((member) => !isValidUsername(member))
+  return invalidMember ? `成員使用者名稱格式不正確：${invalidMember}` : ''
+}
+
 const createDirect = async () => {
   if (!ensureSignedIn()) return
 
   const username = targetUsername.value.trim()
-  if (!username) return
+  if (!isValidUsername(username)) {
+    errorMessage.value = '請輸入有效的使用者名稱'
+    return
+  }
 
   errorMessage.value = ''
   isLoading.value = true
@@ -50,12 +59,26 @@ const createGroup = async () => {
   if (!ensureSignedIn()) return
 
   const name = groupDraft.name.trim()
-  if (!name) return
+  const avatarUrl = groupDraft.avatarUrl.trim()
+  if (!name) {
+    errorMessage.value = '請輸入群組名稱'
+    return
+  }
+  if (name.length > 120) {
+    errorMessage.value = '群組名稱最多 120 個字'
+    return
+  }
+  if (!isValidOptionalUrl(avatarUrl)) {
+    errorMessage.value = '頭像 URL 必須是有效的 http 或 https 網址'
+    return
+  }
 
-  const memberUsernames = groupDraft.members
-    .split(',')
-    .map((member) => member.trim())
-    .filter(Boolean)
+  const memberUsernames = uniqueCsvItems(groupDraft.members)
+  const memberError = validateGroupMembers(memberUsernames)
+  if (memberError) {
+    errorMessage.value = memberError
+    return
+  }
 
   errorMessage.value = ''
   isLoading.value = true
@@ -63,7 +86,7 @@ const createGroup = async () => {
     const conversation = await api.createGroup({
       name,
       description: groupDraft.description.trim() || undefined,
-      avatarUrl: groupDraft.avatarUrl.trim() || undefined,
+      avatarUrl: avatarUrl || undefined,
       isPrivate: groupDraft.isPrivate,
       memberUsernames
     })

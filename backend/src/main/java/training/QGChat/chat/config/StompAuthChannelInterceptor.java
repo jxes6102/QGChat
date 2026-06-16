@@ -9,6 +9,7 @@ import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.stereotype.Component;
 import training.QGChat.auth.exception.AuthException;
+import training.QGChat.auth.exception.ErrorCode;
 import training.QGChat.auth.service.SessionAuthService;
 
 import java.util.HashMap;
@@ -57,7 +58,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             return value;
         }
 
-        throw new AuthException(HttpStatus.UNAUTHORIZED, "Missing bearer token");
+        throw new AuthException(HttpStatus.UNAUTHORIZED, ErrorCode.MISSING_TOKEN, "請先登入");
     }
 
     private Map<String, Object> sessionAttributes(StompHeaderAccessor accessor) {

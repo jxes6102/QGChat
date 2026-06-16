@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import training.QGChat.auth.exception.AuthException;
+import training.QGChat.auth.exception.ErrorCode;
 import training.QGChat.auth.model.AuthenticatedSession;
 
 import java.nio.charset.StandardCharsets;
@@ -40,7 +41,7 @@ public class SessionAuthService {
                     tokenHash);
             return new AuthenticatedSession(userId, tokenHash);
         } catch (EmptyResultDataAccessException exception) {
-            throw new AuthException(HttpStatus.UNAUTHORIZED, "Invalid or expired bearer token");
+            throw new AuthException(HttpStatus.UNAUTHORIZED, ErrorCode.INVALID_TOKEN, "登入狀態已失效，請重新登入");
         }
     }
 
@@ -61,13 +62,13 @@ public class SessionAuthService {
                     tokenHash);
             return new AuthenticatedSession(userId, tokenHash);
         } catch (EmptyResultDataAccessException exception) {
-            throw new AuthException(HttpStatus.UNAUTHORIZED, "Invalid or expired bearer token");
+            throw new AuthException(HttpStatus.UNAUTHORIZED, ErrorCode.INVALID_TOKEN, "登入狀態已失效，請重新登入");
         }
     }
 
     public String currentTokenHash(String authorization) {
         String token = parseBearerToken(authorization)
-                .orElseThrow(() -> new AuthException(HttpStatus.UNAUTHORIZED, "Missing bearer token"));
+                .orElseThrow(() -> new AuthException(HttpStatus.UNAUTHORIZED, ErrorCode.MISSING_TOKEN, "請先登入"));
         return hashToken(token);
     }
 

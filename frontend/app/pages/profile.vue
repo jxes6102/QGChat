@@ -4,6 +4,7 @@ import { qgChatSession } from '../composables/useQGChatSession'
 import { useQGChatApi } from '../composables/useQGChatApi'
 import type { UserProfileResponse } from '../types/qgchat'
 import { localizeQGChatError } from '../utils/qgchatErrors'
+import { isValidEmail, isValidOptionalUrl } from '../utils/qgchatValidation'
 
 const api = useQGChatApi()
 const profile = ref<UserProfileResponse | null>(null)
@@ -43,15 +44,34 @@ const loadProfile = async () => {
   }
 }
 
+const validateProfileForm = () => {
+  const displayName = profileDraft.displayName.trim()
+  const email = profileDraft.email.trim()
+
+  if (!displayName) return '請輸入顯示名稱'
+  if (displayName.length > 80) return '顯示名稱最多 80 個字'
+  if (!isValidEmail(email)) return '請輸入有效的電子郵件'
+  if (!isValidOptionalUrl(profileDraft.avatarUrl)) return '頭像 URL 必須是有效的 http 或 https 網址'
+
+  return ''
+}
+
 const updateProfile = async () => {
   errorMessage.value = ''
   successMessage.value = ''
+
+  const validationError = validateProfileForm()
+  if (validationError) {
+    errorMessage.value = validationError
+    return
+  }
+
   isLoading.value = true
   try {
     profile.value = await api.updateProfile({
-      displayName: profileDraft.displayName,
-      email: profileDraft.email,
-      avatarUrl: profileDraft.avatarUrl
+      displayName: profileDraft.displayName.trim(),
+      email: profileDraft.email.trim(),
+      avatarUrl: profileDraft.avatarUrl.trim()
     })
     syncProfileDraft()
     successMessage.value = '個人資料已更新'

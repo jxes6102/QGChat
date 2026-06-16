@@ -6,6 +6,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import training.QGChat.auth.exception.AuthException;
+import training.QGChat.auth.exception.ErrorCode;
 import training.QGChat.auth.model.AuthenticatedSession;
 import training.QGChat.auth.service.SessionAuthService;
 import training.QGChat.profile.dto.ChangePasswordRequest;
@@ -38,16 +39,20 @@ public class ProfileService {
     @Transactional
     public UserProfileResponse updateProfile(String authorization, UpdateProfileRequest request) {
         UserProfile currentUser = getCurrentUser(authorization);
-        String displayName = normalizeRequiredText(request.displayName(), "Display name cannot be blank");
+        String displayName = normalizeRequiredText(
+                request.displayName(),
+                ErrorCode.DISPLAY_NAME_BLANK,
+                "顯示名稱不能空白"
+        );
         String email = normalizeEmail(request.email());
         String avatarUrl = normalizeOptionalText(request.avatarUrl());
 
         if (displayName == null && email == null && request.avatarUrl() == null) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "No profile fields to update");
+            throw new AuthException(HttpStatus.BAD_REQUEST, ErrorCode.NO_PROFILE_FIELDS, "沒有可更新的個人資料欄位");
         }
 
         if (email != null && existsByEmailForOtherUser(email, currentUser.id())) {
-            throw new AuthException(HttpStatus.CONFLICT, "Email already exists");
+            throw new AuthException(HttpStatus.CONFLICT, ErrorCode.EMAIL_ALREADY_EXISTS, "電子郵件已被使用");
         }
 
         jdbcTemplate.update("""
@@ -73,7 +78,7 @@ public class ProfileService {
 
         if (currentUser.passwordHash() == null
                 || !passwordEncoder.matches(request.currentPassword(), currentUser.passwordHash())) {
-            throw new AuthException(HttpStatus.UNAUTHORIZED, "Invalid current password");
+            throw new AuthException(HttpStatus.UNAUTHORIZED, ErrorCode.INVALID_CURRENT_PASSWORD, "目前密碼錯誤");
         }
 
         jdbcTemplate.update("""
@@ -128,13 +133,13 @@ public class ProfileService {
         return Boolean.TRUE.equals(exists);
     }
 
-    private String normalizeRequiredText(String value, String blankMessage) {
+    private String normalizeRequiredText(String value, String blankCode, String blankMessage) {
         if (value == null) {
             return null;
         }
         String normalized = value.trim();
         if (normalized.isEmpty()) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, blankMessage);
+            throw new AuthException(HttpStatus.BAD_REQUEST, blankCode, blankMessage);
         }
         return normalized;
     }
@@ -153,7 +158,7 @@ public class ProfileService {
         }
         String normalized = value.trim();
         if (normalized.isEmpty()) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "Email cannot be blank");
+            throw new AuthException(HttpStatus.BAD_REQUEST, ErrorCode.EMAIL_BLANK, "電子郵件不能空白");
         }
         return normalized;
     }

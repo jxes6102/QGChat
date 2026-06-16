@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import training.QGChat.auth.dto.ApiErrorResponse;
 import training.QGChat.auth.dto.AuthResponse;
 import training.QGChat.auth.dto.ForgotPasswordRequest;
 import training.QGChat.auth.dto.ForgotPasswordResponse;
@@ -20,8 +21,6 @@ import training.QGChat.auth.dto.ResetPasswordRequest;
 import training.QGChat.auth.dto.ResetPasswordResponse;
 import training.QGChat.auth.exception.AuthException;
 import training.QGChat.auth.service.AuthService;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -71,11 +70,11 @@ public class AuthController {
         return authService.logout(authorization);
     }
 
-    // 將認證流程丟出的業務錯誤統一轉成 JSON，讓前端可以穩定讀取 message。
+    // 將認證流程丟出的業務錯誤統一轉成 JSON，讓前端可以穩定讀取 code 與中文 message。
     @ExceptionHandler(AuthException.class)
-    public ResponseEntity<Map<String, String>> handleAuthException(AuthException exception) {
+    public ResponseEntity<ApiErrorResponse> handleAuthException(AuthException exception) {
         return ResponseEntity.status(exception.status())
-                .body(Map.of("message", exception.getMessage()));
+                .body(new ApiErrorResponse(exception.code(), exception.getMessage()));
     }
 
     private String clientIp(HttpServletRequest request) {

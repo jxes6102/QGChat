@@ -4,6 +4,7 @@ import { qgChatSession } from '../composables/useQGChatSession'
 import { useQGChatApi } from '../composables/useQGChatApi'
 import type { RegisterRequest } from '../types/qgchat'
 import { localizeQGChatError } from '../utils/qgchatErrors'
+import { isValidEmail, isValidUsername } from '../utils/qgchatValidation'
 
 const api = useQGChatApi()
 const isRegistering = ref(false)
@@ -24,11 +25,34 @@ const showError = (error: unknown) => {
   errorMessage.value = localizeQGChatError(error)
 }
 
+const validateAuthForm = () => {
+  if (!isRegistering.value) {
+    if (!authForm.account.trim()) return '請輸入帳號或電子郵件'
+    if (!authForm.password) return '請輸入密碼'
+    return ''
+  }
+
+  const username = authForm.username.trim()
+  const email = authForm.email.trim()
+  const displayName = authForm.displayName.trim()
+
+  if (!isValidUsername(username)) return '使用者名稱需為 3 到 50 個英數字或底線'
+  if (!isValidEmail(email)) return '請輸入有效的電子郵件'
+  if (!displayName) return '請輸入顯示名稱'
+  if (displayName.length > 80) return '顯示名稱最多 80 個字'
+  if (authForm.password.length < 8) return '密碼至少需要 8 個字'
+  if (authForm.password.length > 72) return '密碼最多 72 個字'
+  if (authForm.password !== authForm.confirmPassword) return '兩次輸入的密碼不一致'
+
+  return ''
+}
+
 const submitAuth = async () => {
   errorMessage.value = ''
 
-  if (isRegistering.value && authForm.password !== authForm.confirmPassword) {
-    errorMessage.value = '兩次輸入的密碼不一致'
+  const validationError = validateAuthForm()
+  if (validationError) {
+    errorMessage.value = validationError
     return
   }
 
@@ -36,13 +60,13 @@ const submitAuth = async () => {
   try {
     const response = isRegistering.value
       ? await api.register({
-          username: authForm.username,
-          email: authForm.email,
+          username: authForm.username.trim(),
+          email: authForm.email.trim(),
           password: authForm.password,
-          displayName: authForm.displayName
+          displayName: authForm.displayName.trim()
         })
       : await api.login({
-          account: authForm.account,
+          account: authForm.account.trim(),
           password: authForm.password
         })
 

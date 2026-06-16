@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import training.QGChat.auth.exception.AuthException;
+import training.QGChat.auth.exception.ErrorCode;
 import training.QGChat.auth.service.SessionAuthService;
 import training.QGChat.chat.dto.AddGroupMembersRequest;
 import training.QGChat.chat.dto.ChatMessageResponse;
@@ -143,10 +144,10 @@ public class ChatService {
         UUID userId = requireUserId(authorization);
         // API 使用 username 建立私聊，這裡先轉成資料庫內部 user id。
         UUID targetUserId = findActiveUserIdByUsername(request.targetUsername())
-                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Target user not found"));
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, ErrorCode.TARGET_USER_NOT_FOUND, "找不到指定使用者"));
         // 禁止建立與自己的私聊，避免產生沒有意義的 DIRECT conversation。
         if (userId.equals(targetUserId)) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "Cannot create a direct conversation with yourself");
+            throw new AuthException(HttpStatus.BAD_REQUEST, ErrorCode.CANNOT_CREATE_DIRECT_WITH_SELF, "不能和自己建立私人對話");
         }
 
         // 私聊是雙人唯一的；已存在就重用，沒有才建立新的對話。
@@ -220,7 +221,7 @@ public class ChatService {
     public ConversationResponse addGroupMembers(String authorization, UUID groupId, AddGroupMembersRequest request) {
         UUID actorId = requireUserId(authorization);
         UUID conversationId = findGroupConversationId(groupId)
-                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group not found"));
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, ErrorCode.GROUP_NOT_FOUND, "找不到群組"));
         // 新增成員屬於管理操作，限制 OWNER / ADMIN 才能執行。
         requireGroupManager(groupId, actorId);
 
@@ -299,10 +300,10 @@ public class ChatService {
 
         String nextRole = request.role().trim().toUpperCase(Locale.ROOT);
         String currentRole = groupRole(groupId, memberUserId)
-                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group member not found"));
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, ErrorCode.GROUP_MEMBER_NOT_FOUND, "找不到群組成員"));
         // OWNER 身分只能透過 transferGroupOwner 轉移，避免群組突然沒有擁有者。
         if ("OWNER".equals(currentRole)) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "Use owner transfer to change the group owner");
+            throw new AuthException(HttpStatus.BAD_REQUEST, ErrorCode.USE_OWNER_TRANSFER, "請使用轉移擁有者功能變更群組擁有者");
         }
 
         jdbcTemplate.update("""
@@ -318,14 +319,14 @@ public class ChatService {
                 memberUserId);
 
         return findGroupMember(groupId, memberUserId, actorId)
-                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group member not found"));
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, ErrorCode.GROUP_MEMBER_NOT_FOUND, "找不到群組成員"));
     }
 
     @Transactional
     public void removeGroupMember(String authorization, UUID groupId, UUID memberUserId) {
         UUID actorId = requireUserId(authorization);
         UUID conversationId = findGroupConversationId(groupId)
-                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group not found"));
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, ErrorCode.GROUP_NOT_FOUND, "找不到群組"));
 
         // 使用者移除自己時視為離開群組，沿用 leaveGroup 的 OWNER 保護規則。
         if (actorId.equals(memberUserId)) {
@@ -334,16 +335,16 @@ public class ChatService {
         }
 
         String actorRole = groupRole(groupId, actorId)
-                .orElseThrow(() -> new AuthException(HttpStatus.FORBIDDEN, "You are not a group member"));
+                .orElseThrow(() -> new AuthException(HttpStatus.FORBIDDEN, ErrorCode.NOT_GROUP_MEMBER, "你不是這個群組的成員"));
         String targetRole = groupRole(groupId, memberUserId)
-                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group member not found"));
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, ErrorCode.GROUP_MEMBER_NOT_FOUND, "找不到群組成員"));
 
         if (!"OWNER".equals(actorRole) && !"ADMIN".equals(actorRole)) {
-            throw new AuthException(HttpStatus.FORBIDDEN, "Only group owners or admins can remove members");
+            throw new AuthException(HttpStatus.FORBIDDEN, ErrorCode.GROUP_REMOVE_MEMBERS_REQUIRED, "只有群組擁有者或管理員可以移除成員");
         }
         // ADMIN 只能管理一般成員；OWNER 與其他 ADMIN 需由 OWNER 處理。
         if ("OWNER".equals(targetRole) || ("ADMIN".equals(targetRole) && !"OWNER".equals(actorRole))) {
-            throw new AuthException(HttpStatus.FORBIDDEN, "You cannot remove this group member");
+            throw new AuthException(HttpStatus.FORBIDDEN, ErrorCode.CANNOT_REMOVE_GROUP_MEMBER, "你不能移除此群組成員");
         }
 
         deactivateGroupMember(groupId, conversationId, memberUserId, "REMOVED");
@@ -353,13 +354,13 @@ public class ChatService {
     public void leaveGroup(String authorization, UUID groupId) {
         UUID userId = requireUserId(authorization);
         UUID conversationId = findGroupConversationId(groupId)
-                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group not found"));
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, ErrorCode.GROUP_NOT_FOUND, "找不到群組"));
         String role = groupRole(groupId, userId)
-                .orElseThrow(() -> new AuthException(HttpStatus.FORBIDDEN, "You are not a group member"));
+                .orElseThrow(() -> new AuthException(HttpStatus.FORBIDDEN, ErrorCode.NOT_GROUP_MEMBER, "你不是這個群組的成員"));
 
         // 群組不能沒有 OWNER，因此 OWNER 離開前必須先完成所有權轉移。
         if ("OWNER".equals(role)) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "Transfer ownership before leaving the group");
+            throw new AuthException(HttpStatus.BAD_REQUEST, ErrorCode.TRANSFER_OWNER_BEFORE_LEAVING, "請先轉移群組擁有者再離開");
         }
 
         deactivateGroupMember(groupId, conversationId, userId, "LEFT");
@@ -373,7 +374,7 @@ public class ChatService {
         requireActiveGroupMember(groupId, newOwnerUserId);
 
         if (actorId.equals(newOwnerUserId)) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "New owner must be another group member");
+            throw new AuthException(HttpStatus.BAD_REQUEST, ErrorCode.NEW_OWNER_MUST_BE_ANOTHER_MEMBER, "請選擇其他成員作為新的擁有者");
         }
 
         // 轉移擁有者要同時更新 group_members.role 與 chat_groups.owner_id，保持兩邊資料一致。
@@ -402,7 +403,7 @@ public class ChatService {
                 groupId);
 
         return findGroupMember(groupId, newOwnerUserId, actorId)
-                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group member not found"));
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, ErrorCode.GROUP_MEMBER_NOT_FOUND, "找不到群組成員"));
     }
 
     @Transactional(readOnly = true)
@@ -413,7 +414,7 @@ public class ChatService {
         return listConversations(authorization).stream()
                 .filter(conversation -> conversation.id().equals(conversationId))
                 .findFirst()
-                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Conversation not found"));
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, ErrorCode.CONVERSATION_NOT_FOUND, "找不到對話"));
     }
 
     @Transactional(readOnly = true)
@@ -459,7 +460,7 @@ public class ChatService {
 
         // 回覆訊息必須屬於同一個 conversation，避免跨對話引用。
         if (request.replyToMessageId() != null && !messageExistsInConversation(conversationId, request.replyToMessageId())) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "Reply message does not belong to this conversation");
+            throw new AuthException(HttpStatus.BAD_REQUEST, ErrorCode.REPLY_MESSAGE_WRONG_CONVERSATION, "回覆的訊息不屬於這個對話");
         }
 
         ChatMessage message = jdbcTemplate.queryForObject("""
@@ -507,7 +508,7 @@ public class ChatService {
         requireParticipant(conversationId, userId);
         // 先確認 message 存在且屬於這個 conversation。
         ChatMessage message = findMessage(conversationId, request.messageId())
-                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Message not found"));
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, ErrorCode.MESSAGE_NOT_FOUND, "找不到訊息"));
 
         // message_reads 保存每則訊息的讀取紀錄，participants 則保存快速計算未讀數的游標。
         jdbcTemplate.update("""
@@ -544,7 +545,7 @@ public class ChatService {
                 Boolean.class,
                 userId);
         if (!Boolean.TRUE.equals(exists)) {
-            throw new AuthException(HttpStatus.NOT_FOUND, "User not found");
+            throw new AuthException(HttpStatus.NOT_FOUND, ErrorCode.USER_NOT_FOUND, "找不到使用者");
         }
     }
 
@@ -576,7 +577,7 @@ public class ChatService {
                 conversationId,
                 userId);
         if (!Boolean.TRUE.equals(exists)) {
-            throw new AuthException(HttpStatus.FORBIDDEN, "You are not a participant in this conversation");
+            throw new AuthException(HttpStatus.FORBIDDEN, ErrorCode.NOT_CONVERSATION_PARTICIPANT, "你不是這個對話的成員");
         }
     }
 
@@ -596,21 +597,21 @@ public class ChatService {
                 groupId,
                 userId);
         if (!Boolean.TRUE.equals(exists)) {
-            throw new AuthException(HttpStatus.FORBIDDEN, "Only group owners or admins can add members");
+            throw new AuthException(HttpStatus.FORBIDDEN, ErrorCode.GROUP_ADD_MEMBERS_REQUIRED, "只有群組擁有者或管理員可以加入成員");
         }
     }
 
     private void requireOwner(UUID groupId, UUID userId) {
         // 部分操作必須由唯一 OWNER 執行，例如轉移擁有者與升降權。
         if (!"OWNER".equals(groupRole(groupId, userId).orElse(null))) {
-            throw new AuthException(HttpStatus.FORBIDDEN, "Only the group owner can perform this action");
+            throw new AuthException(HttpStatus.FORBIDDEN, ErrorCode.GROUP_OWNER_REQUIRED, "只有群組擁有者可以執行此操作");
         }
     }
 
     private void requireActiveGroupMember(UUID groupId, UUID userId) {
         // 確認使用者仍在群組內，且沒有被移除或自行離開。
         if (groupRole(groupId, userId).isEmpty()) {
-            throw new AuthException(HttpStatus.FORBIDDEN, "You are not an active group member");
+            throw new AuthException(HttpStatus.FORBIDDEN, ErrorCode.NOT_ACTIVE_GROUP_MEMBER, "你不是這個群組的有效成員");
         }
     }
 
@@ -758,7 +759,7 @@ public class ChatService {
         }
         return memberUsernames.stream()
                 .map(username -> findActiveUserIdByUsername(username)
-                        .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group member not found: " + username)))
+                        .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, ErrorCode.GROUP_MEMBER_NOT_FOUND, "找不到群組成員：" + username)))
                 .filter(memberId -> !ownerId.equals(memberId))
                 .collect(java.util.stream.Collectors.toSet());
     }
@@ -767,7 +768,7 @@ public class ChatService {
         // 空值預設為 TEXT，其餘型別統一轉大寫後檢查白名單。
         String messageType = type == null || type.isBlank() ? "TEXT" : type.trim().toUpperCase(Locale.ROOT);
         if (!MESSAGE_TYPES.contains(messageType)) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "Unsupported message type");
+            throw new AuthException(HttpStatus.BAD_REQUEST, ErrorCode.UNSUPPORTED_MESSAGE_TYPE, "不支援的訊息類型");
         }
         return messageType;
     }
@@ -782,7 +783,7 @@ public class ChatService {
             Object parsed = objectMapper.readValue(metadata, Object.class);
             return objectMapper.writeValueAsString(parsed);
         } catch (JsonProcessingException exception) {
-            throw new AuthException(HttpStatus.BAD_REQUEST, "Metadata must be valid JSON");
+            throw new AuthException(HttpStatus.BAD_REQUEST, ErrorCode.METADATA_INVALID_JSON, "訊息附加資料必須是有效 JSON");
         }
     }
 

@@ -10,7 +10,9 @@ import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.support.NativeMessageHeaderAccessor;
 import org.springframework.stereotype.Controller;
+import training.QGChat.auth.dto.ApiErrorResponse;
 import training.QGChat.auth.exception.AuthException;
+import training.QGChat.auth.exception.ErrorCode;
 import training.QGChat.chat.config.StompAuthChannelInterceptor;
 import training.QGChat.chat.dto.ChatMessageResponse;
 import training.QGChat.chat.dto.WebSocketSendMessageRequest;
@@ -45,9 +47,12 @@ public class ChatSocketController {
     }
 
     @MessageExceptionHandler
-    public Map<String, String> handleException(Exception exception) {
+    public ApiErrorResponse handleException(Exception exception) {
         // STOMP handler 的錯誤也回傳簡單 JSON，方便 client 顯示。
-        return Map.of("message", exception.getMessage());
+        if (exception instanceof AuthException authException) {
+            return new ApiErrorResponse(authException.code(), authException.getMessage());
+        }
+        return new ApiErrorResponse("UNKNOWN_ERROR", exception.getMessage());
     }
 
     private String authorization(Map<String, Object> headers) {
@@ -64,7 +69,7 @@ public class ChatSocketController {
             }
         }
 
-        throw new AuthException(HttpStatus.UNAUTHORIZED, "Missing bearer token");
+        throw new AuthException(HttpStatus.UNAUTHORIZED, ErrorCode.MISSING_TOKEN, "請先登入");
     }
 
     private String nativeAuthorization(Map<String, Object> headers) {
