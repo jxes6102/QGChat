@@ -4,6 +4,7 @@ import type {
   AuthResponse,
   ChatMessageResponse,
   ConversationResponse,
+  GroupMemberResponse,
   LoginRequest,
   RegisterRequest,
   SendMessageRequest,
@@ -32,6 +33,7 @@ export const useQGChatApi = () => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('qgchat.token') : null
     const headers = new Headers(options.headers as HeadersInit | undefined)
 
+    // 所有 REST API 統一在這裡帶入 Bearer token，避免各頁面重複處理授權標頭。
     if (token) {
       headers.set('Authorization', `Bearer ${token}`)
     }
@@ -56,6 +58,14 @@ export const useQGChatApi = () => {
       request<ConversationResponse>('/chats/groups', { method: 'POST', body }),
     addGroupMembers: (groupId: string, memberUsernames: string[]) =>
       request<ConversationResponse>(`/chats/groups/${groupId}/members`, { method: 'POST', body: { memberUsernames } }),
+    groupMembers: (groupId: string) => request<GroupMemberResponse[]>(`/chats/groups/${groupId}/members`),
+    updateGroupMemberRole: (groupId: string, memberUserId: string, role: 'ADMIN' | 'MEMBER') =>
+      request<GroupMemberResponse>(`/chats/groups/${groupId}/members/${memberUserId}/role`, { method: 'PATCH', body: { role } }),
+    removeGroupMember: (groupId: string, memberUserId: string) =>
+      request<void>(`/chats/groups/${groupId}/members/${memberUserId}`, { method: 'DELETE' }),
+    leaveGroup: (groupId: string) => request<void>(`/chats/groups/${groupId}/leave`, { method: 'POST' }),
+    transferGroupOwner: (groupId: string, newOwnerUserId: string) =>
+      request<GroupMemberResponse>(`/chats/groups/${groupId}/owner`, { method: 'PATCH', body: { newOwnerUserId } }),
     messages: (conversationId: string, limit = 50) =>
       request<ChatMessageResponse[]>(`/chats/conversations/${conversationId}/messages`, { query: { limit } }),
     sendMessage: (conversationId: string, body: SendMessageRequest) =>

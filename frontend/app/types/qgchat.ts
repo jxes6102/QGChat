@@ -44,12 +44,23 @@ export interface ConversationResponse {
   groupId?: string | null
   groupName?: string | null
   groupAvatarUrl?: string | null
+  currentUserGroupRole?: 'OWNER' | 'ADMIN' | 'MEMBER' | string | null
   directUserId?: string | null
   directDisplayName?: string | null
   directAvatarUrl?: string | null
   lastMessage?: ChatMessageResponse | null
   unreadCount: number
   updatedAt: string
+}
+
+export interface GroupMemberResponse {
+  userId: string
+  username: string
+  displayName: string
+  avatarUrl?: string | null
+  role: 'OWNER' | 'ADMIN' | 'MEMBER' | string
+  joinedAt?: string | null
+  currentUser: boolean
 }
 
 export interface LoginRequest {

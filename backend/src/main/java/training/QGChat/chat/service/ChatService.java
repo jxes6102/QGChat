@@ -14,8 +14,11 @@ import training.QGChat.chat.dto.ChatMessageResponse;
 import training.QGChat.chat.dto.ConversationResponse;
 import training.QGChat.chat.dto.CreateDirectConversationRequest;
 import training.QGChat.chat.dto.CreateGroupConversationRequest;
+import training.QGChat.chat.dto.GroupMemberResponse;
 import training.QGChat.chat.dto.MarkReadRequest;
 import training.QGChat.chat.dto.SendMessageRequest;
+import training.QGChat.chat.dto.TransferGroupOwnerRequest;
+import training.QGChat.chat.dto.UpdateGroupMemberRoleRequest;
 import training.QGChat.chat.model.ChatMessage;
 
 import java.time.OffsetDateTime;
@@ -51,6 +54,7 @@ public class ChatService {
                                c.group_id,
                                g.name AS group_name,
                                g.avatar_url AS group_avatar_url,
+                               gm.role::text AS current_user_group_role,
                                du.id AS direct_user_id,
                                du.display_name AS direct_display_name,
                                du.avatar_url AS direct_avatar_url,
@@ -69,6 +73,9 @@ public class ChatService {
                         FROM conversation_participants cp
                         JOIN conversations c ON c.id = cp.conversation_id
                         LEFT JOIN chat_groups g ON g.id = c.group_id
+                        LEFT JOIN group_members gm ON gm.group_id = c.group_id
+                            AND gm.user_id = cp.user_id
+                            AND gm.status = 'ACTIVE'
                         LEFT JOIN direct_conversations dc ON dc.conversation_id = c.id
                         LEFT JOIN users du ON du.id = CASE
                             -- 私聊時取出「另一位」使用者，供前端顯示對方名稱與頭像。
@@ -94,6 +101,7 @@ public class ChatService {
                             ))
                         WHERE cp.user_id = ?
                         GROUP BY c.id, c.type, c.group_id, g.name, g.avatar_url,
+                                 gm.role,
                                  du.id, du.display_name, du.avatar_url,
                                  lm.id, lm.sender_id, lms.display_name, lm.type, lm.content, lm.metadata,
                                  lm.reply_to_message_id, lm.sent_at, lm.edited_at, lm.deleted_at, c.updated_at
@@ -105,6 +113,7 @@ public class ChatService {
                         rs.getObject("group_id", UUID.class),
                         rs.getString("group_name"),
                         rs.getString("group_avatar_url"),
+                        rs.getString("current_user_group_role"),
                         rs.getObject("direct_user_id", UUID.class),
                         rs.getString("direct_display_name"),
                         rs.getString("direct_avatar_url"),
@@ -212,9 +221,11 @@ public class ChatService {
         UUID actorId = requireUserId(authorization);
         UUID conversationId = findGroupConversationId(groupId)
                 .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group not found"));
+        // 新增成員屬於管理操作，限制 OWNER / ADMIN 才能執行。
         requireGroupManager(groupId, actorId);
 
         for (UUID memberId : normalizedMemberUsernames(request.memberUsernames(), actorId)) {
+            // 曾被移除或離開的成員再次加入時，重新啟用原本的 group_members 紀錄。
             jdbcTemplate.update("""
                             INSERT INTO group_members (group_id, user_id, role, status, invited_by, joined_at)
                             VALUES (?, ?, 'MEMBER', 'ACTIVE', ?, CURRENT_TIMESTAMP)
@@ -227,6 +238,7 @@ public class ChatService {
                     groupId,
                     memberId,
                     actorId);
+            // 聊天讀寫權限看 conversation_participants，所以加入群組時也要加入對話參與者。
             jdbcTemplate.update("""
                             INSERT INTO conversation_participants (conversation_id, user_id)
                             VALUES (?, ?)
@@ -238,6 +250,159 @@ public class ChatService {
 
         jdbcTemplate.update("UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", conversationId);
         return getConversation(authorization, conversationId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<GroupMemberResponse> listGroupMembers(String authorization, UUID groupId) {
+        UUID userId = requireUserId(authorization);
+        // 成員清單只開放給群組內的 ACTIVE 成員，避免外部使用者探查群組名單。
+        requireActiveGroupMember(groupId, userId);
+
+        return jdbcTemplate.query("""
+                        SELECT u.id, u.username, u.display_name, u.avatar_url,
+                               gm.role::text AS role, gm.joined_at
+                        FROM group_members gm
+                        JOIN users u ON u.id = gm.user_id
+                        WHERE gm.group_id = ?
+                          AND gm.status = 'ACTIVE'
+                          AND u.status = 'ACTIVE'
+                        -- OWNER、ADMIN 優先顯示，再依顯示名稱與帳號排序。
+                        ORDER BY CASE gm.role
+                            WHEN 'OWNER' THEN 1
+                            WHEN 'ADMIN' THEN 2
+                            ELSE 3
+                        END, LOWER(u.display_name), LOWER(u.username)
+                        """,
+                (rs, rowNum) -> new GroupMemberResponse(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("username"),
+                        rs.getString("display_name"),
+                        rs.getString("avatar_url"),
+                        rs.getString("role"),
+                        rs.getObject("joined_at", OffsetDateTime.class),
+                        userId.equals(rs.getObject("id", UUID.class))
+                ),
+                groupId);
+    }
+
+    @Transactional
+    public GroupMemberResponse updateGroupMemberRole(
+            String authorization,
+            UUID groupId,
+            UUID memberUserId,
+            UpdateGroupMemberRoleRequest request
+    ) {
+        UUID actorId = requireUserId(authorization);
+        // 升降權是高風險操作，目前只允許群組 OWNER 執行。
+        requireOwner(groupId, actorId);
+        requireActiveGroupMember(groupId, memberUserId);
+
+        String nextRole = request.role().trim().toUpperCase(Locale.ROOT);
+        String currentRole = groupRole(groupId, memberUserId)
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group member not found"));
+        // OWNER 身分只能透過 transferGroupOwner 轉移，避免群組突然沒有擁有者。
+        if ("OWNER".equals(currentRole)) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Use owner transfer to change the group owner");
+        }
+
+        jdbcTemplate.update("""
+                        UPDATE group_members
+                        SET role = ?::group_role,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE group_id = ?
+                          AND user_id = ?
+                          AND status = 'ACTIVE'
+                        """,
+                nextRole,
+                groupId,
+                memberUserId);
+
+        return findGroupMember(groupId, memberUserId, actorId)
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group member not found"));
+    }
+
+    @Transactional
+    public void removeGroupMember(String authorization, UUID groupId, UUID memberUserId) {
+        UUID actorId = requireUserId(authorization);
+        UUID conversationId = findGroupConversationId(groupId)
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group not found"));
+
+        // 使用者移除自己時視為離開群組，沿用 leaveGroup 的 OWNER 保護規則。
+        if (actorId.equals(memberUserId)) {
+            leaveGroup(authorization, groupId);
+            return;
+        }
+
+        String actorRole = groupRole(groupId, actorId)
+                .orElseThrow(() -> new AuthException(HttpStatus.FORBIDDEN, "You are not a group member"));
+        String targetRole = groupRole(groupId, memberUserId)
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group member not found"));
+
+        if (!"OWNER".equals(actorRole) && !"ADMIN".equals(actorRole)) {
+            throw new AuthException(HttpStatus.FORBIDDEN, "Only group owners or admins can remove members");
+        }
+        // ADMIN 只能管理一般成員；OWNER 與其他 ADMIN 需由 OWNER 處理。
+        if ("OWNER".equals(targetRole) || ("ADMIN".equals(targetRole) && !"OWNER".equals(actorRole))) {
+            throw new AuthException(HttpStatus.FORBIDDEN, "You cannot remove this group member");
+        }
+
+        deactivateGroupMember(groupId, conversationId, memberUserId, "REMOVED");
+    }
+
+    @Transactional
+    public void leaveGroup(String authorization, UUID groupId) {
+        UUID userId = requireUserId(authorization);
+        UUID conversationId = findGroupConversationId(groupId)
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group not found"));
+        String role = groupRole(groupId, userId)
+                .orElseThrow(() -> new AuthException(HttpStatus.FORBIDDEN, "You are not a group member"));
+
+        // 群組不能沒有 OWNER，因此 OWNER 離開前必須先完成所有權轉移。
+        if ("OWNER".equals(role)) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "Transfer ownership before leaving the group");
+        }
+
+        deactivateGroupMember(groupId, conversationId, userId, "LEFT");
+    }
+
+    @Transactional
+    public GroupMemberResponse transferGroupOwner(String authorization, UUID groupId, TransferGroupOwnerRequest request) {
+        UUID actorId = requireUserId(authorization);
+        requireOwner(groupId, actorId);
+        UUID newOwnerUserId = request.newOwnerUserId();
+        requireActiveGroupMember(groupId, newOwnerUserId);
+
+        if (actorId.equals(newOwnerUserId)) {
+            throw new AuthException(HttpStatus.BAD_REQUEST, "New owner must be another group member");
+        }
+
+        // 轉移擁有者要同時更新 group_members.role 與 chat_groups.owner_id，保持兩邊資料一致。
+        jdbcTemplate.update("""
+                        UPDATE group_members
+                        SET role = 'MEMBER',
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE group_id = ?
+                          AND user_id = ?
+                          AND status = 'ACTIVE'
+                        """,
+                groupId,
+                actorId);
+        jdbcTemplate.update("""
+                        UPDATE group_members
+                        SET role = 'OWNER',
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE group_id = ?
+                          AND user_id = ?
+                          AND status = 'ACTIVE'
+                        """,
+                groupId,
+                newOwnerUserId);
+        jdbcTemplate.update("UPDATE chat_groups SET owner_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                newOwnerUserId,
+                groupId);
+
+        return findGroupMember(groupId, newOwnerUserId, actorId)
+                .orElseThrow(() -> new AuthException(HttpStatus.NOT_FOUND, "Group member not found"));
     }
 
     @Transactional(readOnly = true)
@@ -416,6 +581,7 @@ public class ChatService {
     }
 
     private void requireGroupManager(UUID groupId, UUID userId) {
+        // 管理者定義為 ACTIVE 狀態且角色為 OWNER 或 ADMIN 的群組成員。
         Boolean exists = jdbcTemplate.queryForObject("""
                         SELECT EXISTS (
                             SELECT 1
@@ -432,6 +598,92 @@ public class ChatService {
         if (!Boolean.TRUE.equals(exists)) {
             throw new AuthException(HttpStatus.FORBIDDEN, "Only group owners or admins can add members");
         }
+    }
+
+    private void requireOwner(UUID groupId, UUID userId) {
+        // 部分操作必須由唯一 OWNER 執行，例如轉移擁有者與升降權。
+        if (!"OWNER".equals(groupRole(groupId, userId).orElse(null))) {
+            throw new AuthException(HttpStatus.FORBIDDEN, "Only the group owner can perform this action");
+        }
+    }
+
+    private void requireActiveGroupMember(UUID groupId, UUID userId) {
+        // 確認使用者仍在群組內，且沒有被移除或自行離開。
+        if (groupRole(groupId, userId).isEmpty()) {
+            throw new AuthException(HttpStatus.FORBIDDEN, "You are not an active group member");
+        }
+    }
+
+    private Optional<String> groupRole(UUID groupId, UUID userId) {
+        try {
+            // 只讀取 ACTIVE 成員角色；LEFT / REMOVED 都視為沒有群組權限。
+            return Optional.ofNullable(jdbcTemplate.queryForObject("""
+                            SELECT role::text
+                            FROM group_members
+                            WHERE group_id = ?
+                              AND user_id = ?
+                              AND status = 'ACTIVE'
+                            """,
+                    String.class,
+                    groupId,
+                    userId));
+        } catch (EmptyResultDataAccessException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private Optional<GroupMemberResponse> findGroupMember(UUID groupId, UUID memberUserId, UUID currentUserId) {
+        try {
+            // 回傳單一成員資料時順便標記 currentUser，讓前端正確控制操作按鈕。
+            return Optional.ofNullable(jdbcTemplate.queryForObject("""
+                            SELECT u.id, u.username, u.display_name, u.avatar_url,
+                                   gm.role::text AS role, gm.joined_at
+                            FROM group_members gm
+                            JOIN users u ON u.id = gm.user_id
+                            WHERE gm.group_id = ?
+                              AND gm.user_id = ?
+                              AND gm.status = 'ACTIVE'
+                              AND u.status = 'ACTIVE'
+                            """,
+                    (rs, rowNum) -> new GroupMemberResponse(
+                            rs.getObject("id", UUID.class),
+                            rs.getString("username"),
+                            rs.getString("display_name"),
+                            rs.getString("avatar_url"),
+                            rs.getString("role"),
+                            rs.getObject("joined_at", OffsetDateTime.class),
+                            currentUserId.equals(rs.getObject("id", UUID.class))
+                    ),
+                    groupId,
+                    memberUserId));
+        } catch (EmptyResultDataAccessException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private void deactivateGroupMember(UUID groupId, UUID conversationId, UUID userId, String nextStatus) {
+        // 離開與被移除都保留 group_members 歷史紀錄，只改狀態與離開時間。
+        jdbcTemplate.update("""
+                        UPDATE group_members
+                        SET status = ?::group_member_status,
+                            left_at = CURRENT_TIMESTAMP,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE group_id = ?
+                          AND user_id = ?
+                          AND status = 'ACTIVE'
+                        """,
+                nextStatus,
+                groupId,
+                userId);
+        // 從 conversation_participants 移除後，該使用者就不能再讀取或傳送此對話訊息。
+        jdbcTemplate.update("""
+                        DELETE FROM conversation_participants
+                        WHERE conversation_id = ?
+                          AND user_id = ?
+                        """,
+                conversationId,
+                userId);
+        jdbcTemplate.update("UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", conversationId);
     }
 
     private Optional<UUID> findGroupConversationId(UUID groupId) {

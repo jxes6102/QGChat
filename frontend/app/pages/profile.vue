@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { qgChatSession } from '../composables/useQGChatSession'
 import { useQGChatApi } from '../composables/useQGChatApi'
 import type { UserProfileResponse } from '../types/qgchat'
+import { localizeQGChatError } from '../utils/qgchatErrors'
 
 const api = useQGChatApi()
 const profile = ref<UserProfileResponse | null>(null)
@@ -16,8 +17,7 @@ const profileDraft = reactive({
 })
 
 const showError = (error: unknown) => {
-  const fetchError = error as { data?: { message?: string }, message?: string }
-  errorMessage.value = fetchError.data?.message || fetchError.message || '操作失敗，請稍後再試'
+  errorMessage.value = localizeQGChatError(error)
 }
 
 const syncProfileDraft = () => {

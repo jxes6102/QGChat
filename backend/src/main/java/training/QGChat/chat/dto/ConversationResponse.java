@@ -10,6 +10,8 @@ public record ConversationResponse(
         UUID groupId,
         String groupName,
         String groupAvatarUrl,
+        // 目前登入者在此群組中的角色；私聊時為 null。
+        String currentUserGroupRole,
         UUID directUserId,
         String directDisplayName,
         String directAvatarUrl,

@@ -3,26 +3,35 @@ import { reactive, ref } from 'vue'
 import { qgChatSession } from '../composables/useQGChatSession'
 import { useQGChatApi } from '../composables/useQGChatApi'
 import type { RegisterRequest } from '../types/qgchat'
+import { localizeQGChatError } from '../utils/qgchatErrors'
 
 const api = useQGChatApi()
 const isRegistering = ref(false)
 const isLoading = ref(false)
 const errorMessage = ref('')
-const authForm = reactive<RegisterRequest & { account: string }>({
+const showPassword = ref(false)
+const showConfirmPassword = ref(false)
+const authForm = reactive<RegisterRequest & { account: string, confirmPassword: string }>({
   account: '',
   username: '',
   email: '',
   password: '',
+  confirmPassword: '',
   displayName: ''
 })
 
 const showError = (error: unknown) => {
-  const fetchError = error as { data?: { message?: string }, message?: string }
-  errorMessage.value = fetchError.data?.message || fetchError.message || '操作失敗，請稍後再試'
+  errorMessage.value = localizeQGChatError(error)
 }
 
 const submitAuth = async () => {
   errorMessage.value = ''
+
+  if (isRegistering.value && authForm.password !== authForm.confirmPassword) {
+    errorMessage.value = '兩次輸入的密碼不一致'
+    return
+  }
+
   isLoading.value = true
   try {
     const response = isRegistering.value
@@ -84,7 +93,22 @@ const submitAuth = async () => {
 
         <label class="block text-sm">
           <span class="mb-1 block text-neutral-300">密碼</span>
-          <input v-model="authForm.password" type="password" class="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-white outline-none transition focus:border-cyan-400" autocomplete="current-password">
+          <div class="flex rounded-md border border-neutral-700 bg-neutral-950 transition focus-within:border-cyan-400">
+            <input v-model="authForm.password" :type="showPassword ? 'text' : 'password'" class="min-w-0 flex-1 bg-transparent px-3 py-2 text-white outline-none" :autocomplete="isRegistering ? 'new-password' : 'current-password'">
+            <button type="button" class="grid w-11 shrink-0 place-items-center text-neutral-400 transition hover:text-cyan-200" :title="showPassword ? '隱藏密碼' : '顯示密碼'" @click="showPassword = !showPassword">
+              <UIcon :name="showPassword ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'" class="h-5 w-5" />
+            </button>
+          </div>
+        </label>
+
+        <label v-if="isRegistering" class="block text-sm">
+          <span class="mb-1 block text-neutral-300">確認密碼</span>
+          <div class="flex rounded-md border border-neutral-700 bg-neutral-950 transition focus-within:border-cyan-400">
+            <input v-model="authForm.confirmPassword" :type="showConfirmPassword ? 'text' : 'password'" class="min-w-0 flex-1 bg-transparent px-3 py-2 text-white outline-none" autocomplete="new-password">
+            <button type="button" class="grid w-11 shrink-0 place-items-center text-neutral-400 transition hover:text-cyan-200" :title="showConfirmPassword ? '隱藏確認密碼' : '顯示確認密碼'" @click="showConfirmPassword = !showConfirmPassword">
+              <UIcon :name="showConfirmPassword ? 'i-heroicons-eye-slash' : 'i-heroicons-eye'" class="h-5 w-5" />
+            </button>
+          </div>
         </label>
 
         <p v-if="errorMessage" class="rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{{ errorMessage }}</p>

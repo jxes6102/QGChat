@@ -5,7 +5,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { sourceUrlDefaults } from '../config/sourceUrls'
 import { qgChatSession } from '../composables/useQGChatSession'
 import { useQGChatApi } from '../composables/useQGChatApi'
-import type { ChatMessageResponse, ConversationResponse, UserProfileResponse } from '../types/qgchat'
+import type { ChatMessageResponse, ConversationResponse, GroupMemberResponse, UserProfileResponse } from '../types/qgchat'
+import { localizeQGChatError } from '../utils/qgchatErrors'
 
 type NuxtClientWindow = Window & {
   __NUXT__?: {
@@ -23,10 +24,12 @@ const profile = ref<UserProfileResponse | null>(null)
 const conversations = ref<ConversationResponse[]>([])
 const selectedConversationId = ref('')
 const messages = ref<ChatMessageResponse[]>([])
+const groupMembers = ref<GroupMemberResponse[]>([])
 const messageDraft = ref('')
 const memberDraft = ref('')
 const isBooting = ref(false)
 const isAddingMembers = ref(false)
+const isLoadingMembers = ref(false)
 const errorMessage = ref('')
 const memberSuccessMessage = ref('')
 let stompClient: StompClient | null = null
@@ -36,9 +39,14 @@ const selectedConversation = computed(() =>
   conversations.value.find((conversation) => conversation.id === selectedConversationId.value) || null
 )
 
+// 前端顯示層也依照目前使用者角色收斂操作入口；真正權限仍由後端再驗證。
 const canAddMembers = computed(() =>
-  selectedConversation.value?.type === 'GROUP' && Boolean(selectedConversation.value.groupId)
+  selectedConversation.value?.type === 'GROUP' &&
+  ['OWNER', 'ADMIN'].includes(selectedConversation.value.currentUserGroupRole || '') &&
+  Boolean(selectedConversation.value.groupId)
 )
+
+const isGroupOwner = computed(() => selectedConversation.value?.currentUserGroupRole === 'OWNER')
 
 const publicWsBase = () => {
   if (typeof window === 'undefined') return sourceUrlDefaults.wsBase
@@ -60,6 +68,22 @@ const conversationAvatar = (conversation: ConversationResponse) =>
 
 const initials = (name?: string | null) => (name || 'QG').trim().slice(0, 2).toUpperCase()
 
+const roleLabel = (role?: string | null) => {
+  if (role === 'OWNER') return '擁有者'
+  if (role === 'ADMIN') return '管理員'
+  return '成員'
+}
+
+// OWNER 可移除 OWNER 以外的成員；ADMIN 僅能移除一般 MEMBER。
+const canRemoveMember = (member: GroupMemberResponse) => {
+  if (member.currentUser) return false
+  if (isGroupOwner.value) return member.role !== 'OWNER'
+  return selectedConversation.value?.currentUserGroupRole === 'ADMIN' && member.role === 'MEMBER'
+}
+
+const canChangeRole = (member: GroupMemberResponse) =>
+  isGroupOwner.value && !member.currentUser && member.role !== 'OWNER'
+
 const relativeTime = (date?: string | null) => {
   if (!date) return ''
 
@@ -74,8 +98,7 @@ const chronologicalMessages = (items: ChatMessageResponse[]) =>
   [...items].sort((left, right) => new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime())
 
 const showError = (error: unknown) => {
-  const fetchError = error as { data?: { message?: string }, message?: string }
-  errorMessage.value = fetchError.data?.message || fetchError.message || '操作失敗，請稍後再試'
+  errorMessage.value = localizeQGChatError(error)
 }
 
 const loadConversations = async () => {
@@ -87,6 +110,8 @@ const loadConversations = async () => {
 
   if (!selectedConversationId.value && nextConversation) {
     await selectConversation(nextConversation.id)
+  } else if (selectedConversation.value?.groupId) {
+    await loadGroupMembers()
   }
 }
 
@@ -126,6 +151,7 @@ const selectConversation = async (conversationId: string) => {
   errorMessage.value = ''
   memberSuccessMessage.value = ''
   try {
+    // 歷史訊息透過 REST 讀取，並在前端固定成由舊到新的顯示順序。
     messages.value = chronologicalMessages(await api.messages(conversationId))
     subscribeConversation(conversationId)
     const lastMessage = messages.value[messages.value.length - 1]
@@ -134,10 +160,26 @@ const selectConversation = async (conversationId: string) => {
       const conversation = conversations.value.find((item) => item.id === conversationId)
       if (conversation) conversation.unreadCount = 0
     }
+    await loadGroupMembers()
     await nextTick()
     scrollMessagesToBottom()
   } catch (error) {
     showError(error)
+  }
+}
+
+const loadGroupMembers = async () => {
+  const groupId = selectedConversation.value?.groupId
+  groupMembers.value = []
+  if (!groupId) return
+
+  isLoadingMembers.value = true
+  try {
+    groupMembers.value = await api.groupMembers(groupId)
+  } catch (error) {
+    showError(error)
+  } finally {
+    isLoadingMembers.value = false
   }
 }
 
@@ -148,8 +190,12 @@ const sendMessage = async () => {
   errorMessage.value = ''
   messageDraft.value = ''
   try {
+    // WebSocket 在線時讓廣播負責更新畫面；離線時才用 REST 回應作為 fallback。
+    const socketWasConnected = Boolean(stompClient?.connected)
     const message = await api.sendMessage(selectedConversationId.value, { type: 'TEXT', content })
-    appendMessage(message)
+    if (!socketWasConnected) {
+      appendMessage(message)
+    }
   } catch (error) {
     messageDraft.value = content
     showError(error)
@@ -176,6 +222,7 @@ const addGroupMembers = async () => {
     }
     memberDraft.value = ''
     memberSuccessMessage.value = '成員已加入群組'
+    await loadGroupMembers()
   } catch (error) {
     showError(error)
   } finally {
@@ -183,7 +230,71 @@ const addGroupMembers = async () => {
   }
 }
 
+const updateGroupMemberRole = async (member: GroupMemberResponse, role: 'ADMIN' | 'MEMBER') => {
+  const groupId = selectedConversation.value?.groupId
+  if (!groupId || member.role === role) return
+
+  errorMessage.value = ''
+  memberSuccessMessage.value = ''
+  try {
+    const updatedMember = await api.updateGroupMemberRole(groupId, member.userId, role)
+    groupMembers.value = groupMembers.value.map((item) => item.userId === updatedMember.userId ? updatedMember : item)
+    memberSuccessMessage.value = '成員角色已更新'
+  } catch (error) {
+    showError(error)
+  }
+}
+
+const removeGroupMember = async (member: GroupMemberResponse) => {
+  const groupId = selectedConversation.value?.groupId
+  if (!groupId) return
+
+  errorMessage.value = ''
+  memberSuccessMessage.value = ''
+  try {
+    await api.removeGroupMember(groupId, member.userId)
+    groupMembers.value = groupMembers.value.filter((item) => item.userId !== member.userId)
+    memberSuccessMessage.value = '成員已移除'
+  } catch (error) {
+    showError(error)
+  }
+}
+
+const transferGroupOwner = async (member: GroupMemberResponse) => {
+  const groupId = selectedConversation.value?.groupId
+  if (!groupId || member.currentUser) return
+
+  errorMessage.value = ''
+  memberSuccessMessage.value = ''
+  try {
+    await api.transferGroupOwner(groupId, member.userId)
+    memberSuccessMessage.value = '群組擁有者已轉移'
+    await loadConversations()
+    await loadGroupMembers()
+  } catch (error) {
+    showError(error)
+  }
+}
+
+const leaveGroup = async () => {
+  const groupId = selectedConversation.value?.groupId
+  if (!groupId) return
+
+  errorMessage.value = ''
+  memberSuccessMessage.value = ''
+  try {
+    await api.leaveGroup(groupId)
+    conversations.value = conversations.value.filter((conversation) => conversation.id !== selectedConversationId.value)
+    selectedConversationId.value = ''
+    messages.value = []
+    groupMembers.value = []
+  } catch (error) {
+    showError(error)
+  }
+}
+
 const appendMessage = (message: ChatMessageResponse) => {
+  // 同一則訊息可能來自 REST fallback 或 WebSocket 廣播，因此以 id 去重。
   if (!messages.value.some((item) => item.id === message.id)) {
     messages.value.push(message)
   }
@@ -205,6 +316,7 @@ const connectSocket = async () => {
   stompClient = new Client({
     brokerURL: publicWsBase(),
     connectHeaders: {
+      // STOMP CONNECT frame 夾帶 Bearer token，後端在握手後的 channel interceptor 驗證。
       Authorization: `Bearer ${token.value}`
     },
     reconnectDelay: 4000,
@@ -219,6 +331,7 @@ const connectSocket = async () => {
 const subscribeConversation = (conversationId: string) => {
   if (!stompClient?.connected) return
 
+  // 同一時間只訂閱目前聊天室，切換聊天室時先取消前一個 subscription。
   activeSubscription?.unsubscribe()
   activeSubscription = stompClient.subscribe(`/topic/conversations/${conversationId}`, (frame) => {
     appendMessage(JSON.parse(frame.body) as ChatMessageResponse)
@@ -351,17 +464,51 @@ onBeforeUnmount(disconnectSocket)
           </a>
         </nav>
 
-        <form v-if="canAddMembers" class="mt-6 border-t border-neutral-800 pt-5" @submit.prevent="addGroupMembers">
-          <h3 class="text-sm font-semibold text-white">新增群組成員</h3>
-          <label class="mt-3 block text-sm">
-            <span class="mb-1 block text-neutral-300">使用者名稱</span>
-            <input v-model="memberDraft" class="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-400" placeholder="alice, bob" autocomplete="off">
-          </label>
+        <section v-if="selectedConversation?.type === 'GROUP'" class="mt-6 border-t border-neutral-800 pt-5">
+          <div class="flex items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold text-white">群組成員</h3>
+            <span class="rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300">{{ roleLabel(selectedConversation.currentUserGroupRole) }}</span>
+          </div>
+
+          <form v-if="canAddMembers" class="mt-4" @submit.prevent="addGroupMembers">
+            <label class="block text-sm">
+              <span class="mb-1 block text-neutral-300">新增使用者名稱</span>
+              <input v-model="memberDraft" class="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-400" placeholder="alice, bob" autocomplete="off">
+            </label>
+            <button class="mt-3 w-full rounded-md bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-neutral-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60" :disabled="isAddingMembers || !memberDraft.trim()">
+              {{ isAddingMembers ? '加入中...' : '加入成員' }}
+            </button>
+          </form>
+
           <p v-if="memberSuccessMessage" class="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">{{ memberSuccessMessage }}</p>
-          <button class="mt-3 w-full rounded-md bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-neutral-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60" :disabled="isAddingMembers || !memberDraft.trim()">
-            {{ isAddingMembers ? '加入中...' : '加入成員' }}
+          <p v-if="isLoadingMembers" class="mt-4 text-sm text-neutral-500">成員載入中...</p>
+
+          <div class="mt-4 space-y-3">
+            <article v-for="member in groupMembers" :key="member.userId" class="rounded-md border border-neutral-800 bg-neutral-900 p-3">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-semibold text-white">{{ member.displayName }}</p>
+                  <p class="truncate text-xs text-neutral-500">@{{ member.username }}</p>
+                </div>
+                <span class="shrink-0 rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-300">{{ roleLabel(member.role) }}</span>
+              </div>
+
+              <div v-if="canChangeRole(member)" class="mt-3 grid grid-cols-2 gap-2">
+                <button type="button" class="rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-200 transition hover:border-cyan-300 hover:text-cyan-200" :class="member.role === 'ADMIN' ? 'border-cyan-300 text-cyan-200' : ''" @click="updateGroupMemberRole(member, 'ADMIN')">設為管理員</button>
+                <button type="button" class="rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-200 transition hover:border-cyan-300 hover:text-cyan-200" :class="member.role === 'MEMBER' ? 'border-cyan-300 text-cyan-200' : ''" @click="updateGroupMemberRole(member, 'MEMBER')">設為成員</button>
+              </div>
+
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button v-if="isGroupOwner && !member.currentUser && member.role !== 'OWNER'" type="button" class="rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-200 transition hover:border-cyan-300 hover:text-cyan-200" @click="transferGroupOwner(member)">轉移擁有者</button>
+                <button v-if="canRemoveMember(member)" type="button" class="rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-200 transition hover:border-rose-300 hover:text-rose-200" @click="removeGroupMember(member)">移除</button>
+              </div>
+            </article>
+          </div>
+
+          <button type="button" class="mt-4 w-full rounded-md border border-rose-500/40 px-4 py-2.5 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-60" :disabled="isGroupOwner" @click="leaveGroup">
+            {{ isGroupOwner ? '請先轉移擁有者再離開' : '離開群組' }}
           </button>
-        </form>
+        </section>
       </aside>
     </section>
   </main>

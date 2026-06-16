@@ -5,8 +5,10 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -20,8 +22,11 @@ import training.QGChat.chat.dto.ChatMessageResponse;
 import training.QGChat.chat.dto.ConversationResponse;
 import training.QGChat.chat.dto.CreateDirectConversationRequest;
 import training.QGChat.chat.dto.CreateGroupConversationRequest;
+import training.QGChat.chat.dto.GroupMemberResponse;
 import training.QGChat.chat.dto.MarkReadRequest;
 import training.QGChat.chat.dto.SendMessageRequest;
+import training.QGChat.chat.dto.TransferGroupOwnerRequest;
+import training.QGChat.chat.dto.UpdateGroupMemberRoleRequest;
 import training.QGChat.chat.service.ChatService;
 
 import java.time.OffsetDateTime;
@@ -74,7 +79,59 @@ public class ChatController {
             @PathVariable UUID groupId,
             @Valid @RequestBody AddGroupMembersRequest request
     ) {
+        // OWNER 或 ADMIN 可用 username 批次加入群組成員。
         return chatService.addGroupMembers(authorization, groupId, request);
+    }
+
+    @GetMapping("/groups/{groupId}/members")
+    public List<GroupMemberResponse> listGroupMembers(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable UUID groupId
+    ) {
+        // 僅群組內的有效成員可以查看成員清單。
+        return chatService.listGroupMembers(authorization, groupId);
+    }
+
+    @PatchMapping("/groups/{groupId}/members/{memberUserId}/role")
+    public GroupMemberResponse updateGroupMemberRole(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable UUID groupId,
+            @PathVariable UUID memberUserId,
+            @Valid @RequestBody UpdateGroupMemberRoleRequest request
+    ) {
+        // 只有 OWNER 可以調整成員角色，且 OWNER 轉移走獨立 API。
+        return chatService.updateGroupMemberRole(authorization, groupId, memberUserId, request);
+    }
+
+    @DeleteMapping("/groups/{groupId}/members/{memberUserId}")
+    public ResponseEntity<Void> removeGroupMember(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable UUID groupId,
+            @PathVariable UUID memberUserId
+    ) {
+        // 移除成員會停用 group_members，並同步移出 conversation_participants。
+        chatService.removeGroupMember(authorization, groupId, memberUserId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/groups/{groupId}/leave")
+    public ResponseEntity<Void> leaveGroup(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable UUID groupId
+    ) {
+        // 一般成員與 ADMIN 可自行離開；OWNER 必須先轉移擁有者。
+        chatService.leaveGroup(authorization, groupId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/groups/{groupId}/owner")
+    public GroupMemberResponse transferGroupOwner(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable UUID groupId,
+            @Valid @RequestBody TransferGroupOwnerRequest request
+    ) {
+        // 轉移群組擁有者，確保群組永遠保有一位 OWNER。
+        return chatService.transferGroupOwner(authorization, groupId, request);
     }
 
     @GetMapping("/conversations/{conversationId}/messages")
